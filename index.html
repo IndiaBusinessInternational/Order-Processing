@@ -4,87 +4,139 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>IBI Order Processing</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%23000000'/><text x='50%' y='54%' dominant-baseline='middle' text-anchor='middle' fill='%2300c5ff' font-family='Roboto, Arial, sans-serif' font-size='38' font-weight='900'>IBI</text></svg>">
+    
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    
     <style>
         :root {
             --bg: #f4f6f9; --card-bg: #ffffff; --text: #1a1a1a;
-            --text-muted: #666666; --border: #d1d5db; --primary: #2563eb;
+            --text-muted: #64748b; --border: #e2e8f0; --primary: #2563eb;
             --primary-hover: #1d4ed8; --input-bg: #ffffff;
-            --header-bg: #1e293b; --header-text: #ffffff;
             --success: #10b981; --warning: #f59e0b; --danger: #ef4444;
+            --shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
         }
         [data-theme="dark"] {
             --bg: #0f172a; --card-bg: #1e293b; --text: #f8fafc;
             --text-muted: #94a3b8; --border: #334155; --primary: #3b82f6;
             --primary-hover: #60a5fa; --input-bg: #0f172a;
-            --header-bg: #020617; --header-text: #f8fafc;
+            --shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
         }
+        
         * { box-sizing: border-box; margin: 0; padding: 0; }
+        
         body {
-            font-family: 'Inter', sans-serif; background-color: var(--bg);
-            color: var(--text); transition: background-color 0.3s, color 0.3s;
+            font-family: 'Roboto', sans-serif; 
+            background-color: var(--bg);
+            color: var(--text); 
+            transition: background-color 0.3s, color 0.3s;
             padding-bottom: 80px;
         }
-        .header {
-            background-color: var(--header-bg); color: var(--header-text);
-            padding: 16px 20px; display: flex; justify-content: space-between;
-            align-items: center; position: sticky; top: 0; z-index: 100;
-            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+
+        .header-top {
+            padding: 16px 20px;
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
         }
-        .header h1 { font-size: 1.1rem; font-weight: 700; letter-spacing: 0.5px; }
+
         .theme-toggle {
-            background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);
-            color: white; padding: 6px 12px; border-radius: 20px;
-            font-size: 0.8rem; cursor: pointer;
+            background: var(--card-bg); 
+            border: 1px solid var(--border);
+            color: var(--text); 
+            padding: 8px 16px; 
+            border-radius: 24px;
+            font-size: 14px; 
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            transition: all 0.2s;
         }
-        .container { padding: 16px; max-width: 600px; margin: 0 auto; }
+        .theme-toggle:hover { border-color: var(--primary); transform: translateY(-1px); }
+
+        .container { padding: 0 16px 16px 16px; max-width: 600px; margin: 0 auto; }
+        
+        /* BRANDING CONTAINER */
+        .brand-container {
+            text-align: center;
+            margin-bottom: 24px;
+        }
+        .brand-logo {
+            width: 100%; max-width: 100%; height: auto; border-radius: 8px; margin-bottom: 16px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+        }
+        .app-title {
+            margin: 0; font-size: 24px; font-weight: 800; color: var(--text); 
+            letter-spacing: 0.5px;
+        }
+
         .card {
             background-color: var(--card-bg); border: 1px solid var(--border);
-            border-radius: 12px; padding: 20px; margin-bottom: 16px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            border-radius: 16px; padding: 24px; margin-bottom: 24px;
+            box-shadow: var(--shadow);
         }
-        .card-title {
-            font-size: 0.9rem; font-weight: 700; color: var(--primary);
-            text-transform: uppercase; margin-bottom: 16px;
-            border-bottom: 1px solid var(--border); padding-bottom: 8px;
+
+        /* IBI Custom Cyan & Black Headers */
+        .section-title {
+            background-color: #000000;
+            color: #00c5ff;
+            padding: 12px 16px;
+            border-radius: 8px;
+            font-size: 15px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            display: flex;
+            align-items: center;
         }
+
         .form-group { margin-bottom: 16px; }
         label {
-            display: block; font-size: 0.85rem; font-weight: 600;
-            margin-bottom: 6px; color: var(--text-muted);
+            display: block; font-size: 13px; font-weight: 600; text-transform: uppercase;
+            letter-spacing: 0.5px; margin-bottom: 8px; color: var(--text-muted);
         }
+        
         input, select {
-            width: 100%; padding: 12px; font-size: 16px;
+            width: 100%; padding: 14px; font-size: 16px;
             border: 1px solid var(--border); border-radius: 8px;
             background-color: var(--input-bg); color: var(--text);
             font-family: inherit; appearance: none;
+            transition: all 0.2s;
         }
         input:focus, select:focus {
             outline: none; border-color: var(--primary);
-            box-shadow: 0 0 0 2px rgba(59,130,246,0.2);
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
+            background-color: var(--card-bg);
         }
+        
         .select-wrapper { position: relative; }
         .select-wrapper::after {
             content: "▼"; font-size: 0.7rem; position: absolute;
             right: 14px; top: 50%; transform: translateY(-50%);
             color: var(--text-muted); pointer-events: none;
         }
+        
         .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
         .grid-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 8px; }
         .grid-4 label { font-size: 0.75rem; text-align: center; }
         .grid-4 input { padding: 10px 4px; text-align: center; }
+        
         .auto-field {
             background-color: var(--bg); color: var(--text-muted);
             font-style: italic; border: 1px dashed var(--border); text-align: center;
         }
-        /* Courier lock */
+        
         select option:disabled { color: #bbb !important; font-style: italic; }
+        
         .courier-hint {
             font-size: 0.72rem; color: var(--text-muted); margin-top: 5px;
             padding: 6px 10px; background: var(--bg); border-radius: 6px;
             border: 1px dashed var(--border); display: none;
         }
-        /* Shipment display */
+        
         .shipment-display {
             background-color: var(--bg); border: 1px dashed var(--border);
             border-radius: 8px; padding: 12px; font-size: 1rem;
@@ -92,28 +144,30 @@
             display: flex; align-items: center; justify-content: center;
             transition: border-color 0.3s;
         }
+        
         .shipment-rule {
             font-size: 0.72rem; color: var(--text-muted); margin-top: 5px;
             padding: 6px 10px; background: var(--bg); border-radius: 6px;
             border: 1px dashed var(--border); display: none;
         }
-        /* Submit */
+        
         .submit-zone {
             position: fixed; bottom: 0; left: 0; right: 0;
-            background-color: var(--card-bg); padding: 12px 16px;
+            background-color: var(--card-bg); padding: 16px;
             border-top: 1px solid var(--border); z-index: 100;
         }
+        
         .btn-submit {
             width: 100%; max-width: 600px; margin: 0 auto; display: block;
             background-color: var(--primary); color: white; border: none;
-            padding: 16px; font-size: 1.05rem; font-weight: 700;
-            border-radius: 8px; cursor: pointer;
-            box-shadow: 0 4px 6px rgba(37,99,235,0.2); transition: background 0.2s;
+            padding: 16px; font-size: 16px; font-weight: 700; text-transform: uppercase;
+            letter-spacing: 1px; border-radius: 8px; cursor: pointer;
+            box-shadow: 0 4px 6px rgba(37,99,235,0.2); transition: all 0.2s;
         }
-        .btn-submit:active { transform: scale(0.98); }
-        .btn-submit:disabled { background-color: var(--text-muted); cursor: not-allowed; }
-        .btn-submit.editing { background-color: var(--warning) !important; }
-        /* Loader */
+        .btn-submit:hover { background-color: var(--primary-hover); transform: translateY(-1px); }
+        .btn-submit:disabled { background-color: var(--text-muted); cursor: not-allowed; transform: none; box-shadow: none;}
+        .btn-submit.editing { background-color: var(--warning) !important; color: #000; }
+        
         #loader {
             display: none; position: fixed; inset: 0;
             background: rgba(0,0,0,0.8); z-index: 999;
@@ -126,239 +180,241 @@
             animation: spin 1s linear infinite; margin-bottom: 16px;
         }
         @keyframes spin { to { transform: rotate(360deg); } }
-        /* History */
+        
         .history-section { margin-top: 8px; }
         .history-header {
             display: flex; justify-content: space-between; align-items: center;
-            margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 8px;
+            margin-bottom: 16px;
         }
-        .history-header span { font-size: 0.9rem; font-weight: 700; color: var(--primary); text-transform: uppercase; }
+        .history-header span { font-size: 15px; font-weight: 700; color: var(--primary); text-transform: uppercase; }
         .history-count {
-            font-size: 0.75rem; background: var(--primary); color: white;
-            padding: 2px 8px; border-radius: 20px; font-weight: 600;
+            font-size: 12px; background: var(--primary); color: white;
+            padding: 4px 8px; border-radius: 20px; font-weight: 600;
         }
-        .history-empty {
-            text-align: center; color: var(--text-muted); font-size: 0.85rem; padding: 20px 0;
-        }
+        .history-empty { text-align: center; color: var(--text-muted); font-size: 14px; padding: 20px 0; }
+        
         .btn-clear-history {
-            background: none; border: 1px solid var(--border); color: var(--text-muted);
-            font-size: 0.72rem; padding: 3px 9px; border-radius: 12px; cursor: pointer;
+            background: transparent; border: 1px solid var(--border); color: var(--text-muted);
+            font-size: 12px; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-weight: 700;
+            transition: all 0.2s;
         }
-        .btn-clear-history:hover { border-color: var(--danger); color: var(--danger); }
-        /* History card */
+        .btn-clear-history:hover { border-color: var(--danger); color: var(--danger); background-color: rgba(239, 68, 68, 0.1); }
+        
         .hist-card {
-            border-radius: 10px; background: var(--bg);
+            border-radius: 12px; background: var(--bg);
             border: 1px solid var(--border); margin-bottom: 12px;
             overflow: hidden; cursor: pointer;
             transition: border-color 0.2s, box-shadow 0.2s;
         }
-        .hist-card:hover { border-color: var(--primary); box-shadow: 0 2px 10px rgba(37,99,235,0.15); }
+        .hist-card:hover { border-color: var(--primary); box-shadow: 0 4px 12px rgba(37,99,235,0.1); }
         .hist-card.newest { border-color: var(--success); border-width: 2px; }
+        
         .hist-banner {
             display: flex; align-items: center; flex-wrap: wrap;
-            padding: 8px 12px; background: rgba(37,99,235,0.07);
-            border-bottom: 1px solid var(--border); gap: 7px;
+            padding: 10px 14px; background: rgba(37,99,235,0.07);
+            border-bottom: 1px solid var(--border); gap: 8px;
         }
-        .hist-serial { font-size: 1rem; font-weight: 700; color: var(--primary); letter-spacing: 0.5px; }
+        .hist-serial { font-size: 15px; font-weight: 700; color: var(--primary); letter-spacing: 0.5px; }
         .hist-plat {
-            font-size: 0.7rem; padding: 3px 10px; border-radius: 12px;
+            font-size: 11px; padding: 4px 10px; border-radius: 12px;
             background: rgba(37,99,235,0.12); color: var(--primary); font-weight: 700;
         }
-        .hist-date { font-size: 0.72rem; color: var(--text-muted); margin-left: auto; white-space: nowrap; }
+        .hist-date { font-size: 12px; color: var(--text-muted); margin-left: auto; white-space: nowrap; font-weight: 500; }
         .hist-edit-hint {
-            font-size: 0.68rem; color: var(--success); font-weight: 600;
-            padding: 2px 8px; border-radius: 10px; background: rgba(16,185,129,0.1); white-space: nowrap;
+            font-size: 11px; color: var(--success); font-weight: 700;
+            padding: 4px 8px; border-radius: 10px; background: rgba(16,185,129,0.1); white-space: nowrap;
         }
-        .hist-body { padding: 10px 12px; display: flex; flex-direction: column; gap: 5px; }
-        .hist-row { display: flex; align-items: flex-start; gap: 8px; font-size: 0.8rem; }
-        .hl { color: var(--text-muted); font-weight: 600; white-space: nowrap; min-width: 90px; font-size: 0.74rem; }
+        .hist-body { padding: 14px; display: flex; flex-direction: column; gap: 8px; }
+        .hist-row { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; }
+        .hl { color: var(--text-muted); font-weight: 600; white-space: nowrap; min-width: 90px; }
         .hv { color: var(--text); font-weight: 500; word-break: break-word; }
-        .hv.strong { font-weight: 700; font-size: 0.85rem; }
-        .hd { height: 1px; background: var(--border); margin: 3px 0; }
-        .dim-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 4px; margin-top: 3px; }
+        .hv.strong { font-weight: 700; font-size: 14px; }
+        .hd { height: 1px; background: var(--border); margin: 6px 0; }
+        
+        .dim-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 6px; margin-top: 4px; }
         .dim-cell {
             background: var(--card-bg); border: 1px solid var(--border);
-            border-radius: 6px; padding: 4px; text-align: center;
+            border-radius: 6px; padding: 6px; text-align: center;
         }
-        .dim-cell .dl { font-size: 0.62rem; color: var(--text-muted); font-weight: 600; }
-        .dim-cell .dv { font-size: 0.78rem; font-weight: 700; }
+        .dim-cell .dl { font-size: 11px; color: var(--text-muted); font-weight: 600; }
+        .dim-cell .dv { font-size: 13px; font-weight: 700; margin-top: 2px;}
     </style>
 </head>
-<body data-theme="light">
+<body>
 
-<div class="header">
-    <h1>📦 IBI Order Processing</h1>
-    <button class="theme-toggle" onclick="toggleTheme()" id="themeBtn">🌙 Dark</button>
+<div class="header-top">
+    <button class="theme-toggle" onclick="toggleTheme()" id="themeBtn">🌙 Dark Mode</button>
 </div>
 
 <div class="container">
-<form id="orderForm">
-
-    <!-- SYSTEM ALLOCATION -->
-    <div class="card">
-        <div class="card-title">System Allocation</div>
-        <div class="form-group">
-            <label>Entry Date &amp; Time</label>
-            <input type="text" id="clockDisplay" class="auto-field" readonly placeholder="Live — captured at submit">
-        </div>
-        <div class="form-group">
-            <label>Serial Number</label>
-            <input type="text" class="auto-field" value="Auto-generated on submit (starts 604042)" readonly>
-        </div>
+    
+    <div class="brand-container">
+        <img src="logo.png" alt="India Business International" class="brand-logo" onerror="this.style.display='none'">
+        <h2 class="app-title">IBI Order Processing</h2>
     </div>
 
-    <!-- 1. PLATFORM & LOGISTICS -->
-    <div class="card">
-        <div class="card-title">1. Platform &amp; Logistics</div>
+    <form id="orderForm">
 
-        <div class="form-group">
-            <label>Platform</label>
-            <div class="select-wrapper">
-                <select name="platform" id="platformSelect" required>
-                    <option value="" disabled selected>-- Select Platform --</option>
-                    <option>Amazon</option>
-                    <option>Amazon Bazaar</option>
-                    <option>Flipkart</option>
-                    <option>Shopsy</option>
-                    <option>ShopClues</option>
-                    <option>Meesho</option>
-                    <option>IBI Website</option>
-                    <option>Offline</option>
-                </select>
-            </div>
-        </div>
-
-        <div class="form-group">
-            <label>Courier Service</label>
-            <div class="select-wrapper">
-                <select name="courier" id="courierSelect" required>
-                    <option value="" disabled selected>-- Select Platform first --</option>
-                    <option value="Amazon ATS" id="opt-ats">Amazon ATS</option>
-                    <option value="eKart"       id="opt-ekart">eKart</option>
-                    <option value="Delhivery"   id="opt-delhivery">Delhivery</option>
-                </select>
-            </div>
-            <div class="courier-hint" id="courierHint"></div>
-        </div>
-
-        <div class="grid-2">
+        <div class="card">
+            <div class="section-title">⚙️ System Allocation</div>
             <div class="form-group">
-                <label>Pickup Date</label>
-                <input type="date" name="pickupDate" id="pickupDate" required>
+                <label>Entry Date &amp; Time</label>
+                <input type="text" id="clockDisplay" class="auto-field" readonly placeholder="Live — captured at submit">
             </div>
             <div class="form-group">
-                <label>Pickup Day</label>
-                <input type="text" name="pickupDay" id="pickupDay" class="auto-field" readonly placeholder="Auto-fills">
+                <label>Serial Number</label>
+                <input type="text" class="auto-field" value="Auto-generated on submit (starts 604042)" readonly>
             </div>
         </div>
 
-        <div class="form-group">
-            <label>Pickup Time</label>
-            <div class="select-wrapper">
-                <select name="pickupTime" required>
-                    <option value="ForeNoon (FN)">ForeNoon (FN)</option>
-                    <option value="AfterNoon (AN)">AfterNoon (AN)</option>
-                </select>
-            </div>
-        </div>
-    </div>
+        <div class="card">
+            <div class="section-title">🚚 1. Platform &amp; Logistics</div>
 
-    <!-- 2. PRODUCT DETAILS -->
-    <div class="card">
-        <div class="card-title">2. Product Details</div>
-
-        <div class="form-group">
-            <label>Product Name</label>
-            <input type="text" name="productName" placeholder="Enter product name" required>
-        </div>
-
-        <div class="grid-2">
             <div class="form-group">
-                <label>Retail Price (₹)</label>
-                <input type="number" step="any" name="retailPrice" placeholder="0" required>
-            </div>
-            <div class="form-group">
-                <label>Payment Type</label>
+                <label>Platform</label>
                 <div class="select-wrapper">
-                    <select name="paymentType" required>
-                        <option>Prepaid</option>
-                        <option>COD</option>
+                    <select name="platform" id="platformSelect" required>
+                        <option value="" disabled selected>-- Select Platform --</option>
+                        <option>Amazon</option>
+                        <option>Amazon Bazaar</option>
+                        <option>Flipkart</option>
+                        <option>Shopsy</option>
+                        <option>ShopClues</option>
+                        <option>Meesho</option>
+                        <option>IBI Website</option>
+                        <option>Offline</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>Courier Service</label>
+                <div class="select-wrapper">
+                    <select name="courier" id="courierSelect" required>
+                        <option value="" disabled selected>-- Select Platform first --</option>
+                        <option value="Amazon ATS" id="opt-ats">Amazon ATS</option>
+                        <option value="eKart"       id="opt-ekart">eKart</option>
+                        <option value="Delhivery"   id="opt-delhivery">Delhivery</option>
+                    </select>
+                </div>
+                <div class="courier-hint" id="courierHint"></div>
+            </div>
+
+            <div class="grid-2">
+                <div class="form-group">
+                    <label>Pickup Date</label>
+                    <input type="date" name="pickupDate" id="pickupDate" required>
+                </div>
+                <div class="form-group">
+                    <label>Pickup Day</label>
+                    <input type="text" name="pickupDay" id="pickupDay" class="auto-field" readonly placeholder="Auto-fills">
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>Pickup Time</label>
+                <div class="select-wrapper">
+                    <select name="pickupTime" required>
+                        <option value="ForeNoon (FN)">ForeNoon (FN)</option>
+                        <option value="AfterNoon (AN)">AfterNoon (AN)</option>
                     </select>
                 </div>
             </div>
         </div>
 
-        <label style="margin-top:10px;">Dimensions (Product)</label>
-        <div class="grid-4">
-            <div class="form-group"><label>L (cm)</label><input type="number" step="any" name="pLen" required></div>
-            <div class="form-group"><label>W (cm)</label><input type="number" step="any" name="pWid" required></div>
-            <div class="form-group"><label>H (cm)</label><input type="number" step="any" name="pHei" required></div>
-            <div class="form-group"><label>Wt (gm)</label><input type="number" step="any" name="pWgt" required></div>
-        </div>
+        <div class="card">
+            <div class="section-title">📦 2. Product Details</div>
 
-        <label style="margin-top:10px;">Dimensions (Package)</label>
-        <div class="grid-4">
-            <div class="form-group"><label>L (cm)</label><input type="number" step="any" name="pkgLen" required></div>
-            <div class="form-group"><label>W (cm)</label><input type="number" step="any" name="pkgWid" required></div>
-            <div class="form-group"><label>H (cm)</label><input type="number" step="any" name="pkgHei" required></div>
-            <div class="form-group"><label>Wt (gm)</label><input type="number" step="any" name="pkgWgt" required></div>
-        </div>
-
-        <div class="form-group" style="margin-top:14px;">
-            <label>B.Wt (gms) — Carton Box Weight</label>
-            <input type="number" step="any" name="bWgt" placeholder="Carton box weight in grams" required>
-        </div>
-    </div>
-
-    <!-- 3. DISPATCH INFORMATION -->
-    <div class="card">
-        <div class="card-title">3. Dispatch Information</div>
-
-        <div class="form-group">
-            <label>Shipment Type <span style="font-size:0.72rem;font-weight:400;color:var(--text-muted);">— auto-determined from State &amp; City</span></label>
-            <div class="shipment-display" id="shipmentDisplay">
-                <span style="color:var(--text-muted);font-style:italic;font-size:0.85rem;font-weight:400;">Select State / UT below to auto-fill</span>
-            </div>
-            <input type="hidden" name="shipmentTo" id="shipmentTo">
-            <div class="shipment-rule" id="shipmentRule"></div>
-        </div>
-
-        <div class="form-group">
-            <label>Name of Buyer</label>
-            <input type="text" name="buyerName" placeholder="Customer Name" required>
-        </div>
-
-        <div class="grid-2">
             <div class="form-group">
-                <label>Location / City</label>
-                <input type="text" name="location" id="locationInput" placeholder="City" required>
+                <label>Product Name</label>
+                <input type="text" name="productName" placeholder="Enter product name" required>
             </div>
+
+            <div class="grid-2">
+                <div class="form-group">
+                    <label>Retail Price (₹)</label>
+                    <input type="number" step="any" name="retailPrice" placeholder="0" required>
+                </div>
+                <div class="form-group">
+                    <label>Payment Type</label>
+                    <div class="select-wrapper">
+                        <select name="paymentType" required>
+                            <option>Prepaid</option>
+                            <option>COD</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <label style="margin-top:20px;">Dimensions (Product)</label>
+            <div class="grid-4">
+                <div class="form-group"><label>L (cm)</label><input type="number" step="any" name="pLen" required></div>
+                <div class="form-group"><label>W (cm)</label><input type="number" step="any" name="pWid" required></div>
+                <div class="form-group"><label>H (cm)</label><input type="number" step="any" name="pHei" required></div>
+                <div class="form-group"><label>Wt (gm)</label><input type="number" step="any" name="pWgt" required></div>
+            </div>
+
+            <label style="margin-top:20px;">Dimensions (Package)</label>
+            <div class="grid-4">
+                <div class="form-group"><label>L (cm)</label><input type="number" step="any" name="pkgLen" required></div>
+                <div class="form-group"><label>W (cm)</label><input type="number" step="any" name="pkgWid" required></div>
+                <div class="form-group"><label>H (cm)</label><input type="number" step="any" name="pkgHei" required></div>
+                <div class="form-group"><label>Wt (gm)</label><input type="number" step="any" name="pkgWgt" required></div>
+            </div>
+
+            <div class="form-group" style="margin-top:24px;">
+                <label>B.Wt (gms) — Carton Box Weight</label>
+                <input type="number" step="any" name="bWgt" placeholder="Carton box weight in grams" required>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="section-title">📍 3. Dispatch Information</div>
+
             <div class="form-group">
-                <label>State / UT</label>
-                <div class="select-wrapper">
-                    <select name="state" id="stateDropdown" required>
-                        <option value="" disabled selected>Select State</option>
-                    </select>
+                <label>Shipment Type <span style="font-size:12px;font-weight:400;color:var(--text-muted);text-transform:none;">— auto-determined from State &amp; City</span></label>
+                <div class="shipment-display" id="shipmentDisplay">
+                    <span style="color:var(--text-muted);font-style:italic;font-size:14px;font-weight:400;">Select State / UT below to auto-fill</span>
+                </div>
+                <input type="hidden" name="shipmentTo" id="shipmentTo">
+                <div class="shipment-rule" id="shipmentRule"></div>
+            </div>
+
+            <div class="form-group">
+                <label>Name of Buyer</label>
+                <input type="text" name="buyerName" placeholder="Customer Name" required>
+            </div>
+
+            <div class="grid-2">
+                <div class="form-group">
+                    <label>Location / City</label>
+                    <input type="text" name="location" id="locationInput" placeholder="City" required>
+                </div>
+                <div class="form-group">
+                    <label>State / UT</label>
+                    <div class="select-wrapper">
+                        <select name="state" id="stateDropdown" required>
+                            <option value="" disabled selected>Select State</option>
+                        </select>
+                    </div>
                 </div>
             </div>
         </div>
-    </div>
 
-</form>
-</div>
-
-<!-- RECENT SUBMISSIONS -->
-<div class="container history-section">
-    <div class="card">
-        <div class="history-header">
-            <span>📋 Recent Submissions</span>
-            <div style="display:flex;gap:8px;align-items:center;">
-                <span class="history-count" id="historyCount">0 / 24</span>
-                <button class="btn-clear-history" type="button" onclick="clearHistory()">Clear All</button>
+    </form>
+    
+    <div class="history-section">
+        <div class="card">
+            <div class="section-title" style="margin-bottom: 16px;">⏱️ Recent Submissions</div>
+            <div class="history-header">
+                <div style="display:flex;gap:8px;align-items:center; width: 100%; justify-content: space-between;">
+                    <span class="history-count" id="historyCount">0 / 24</span>
+                    <button class="btn-clear-history" type="button" onclick="clearHistory()">Clear All Memory</button>
+                </div>
             </div>
-        </div>
-        <div id="historyList">
-            <div class="history-empty">No submissions yet. Fill the form above to get started.</div>
+            <div id="historyList">
+                <div class="history-empty">No submissions yet. Fill the form above to get started.</div>
+            </div>
         </div>
     </div>
 </div>
@@ -370,7 +426,7 @@
 <div id="loader">
     <div class="spinner"></div>
     <h2 style="margin-bottom:5px;">Saving to Database...</h2>
-    <p style="font-size:0.85rem;color:#ccc;">Generating Serial Number</p>
+    <p style="font-size:14px;color:#ccc;">Generating Serial Number</p>
 </div>
 
 <script>
@@ -417,17 +473,17 @@ function toggleTheme(){
     var btn  = document.getElementById('themeBtn');
     if(body.getAttribute('data-theme')==='light'){
         body.setAttribute('data-theme','dark');
-        btn.textContent='☀️ Light';
+        btn.textContent='☀️ Light Mode';
         localStorage.setItem('ibi_theme','dark');
     } else {
         body.setAttribute('data-theme','light');
-        btn.textContent='🌙 Dark';
+        btn.textContent='🌙 Dark Mode';
         localStorage.setItem('ibi_theme','light');
     }
 }
 if(localStorage.getItem('ibi_theme')==='dark'){
     document.body.setAttribute('data-theme','dark');
-    document.getElementById('themeBtn').textContent='☀️ Light';
+    document.getElementById('themeBtn').textContent='☀️ Light Mode';
 }
 
 // ═══ LIVE CLOCK ═══════════════════════════════════════════
@@ -468,7 +524,7 @@ function onPlatformChange(platform){
 
     // Enable/disable options
     var opts = cs.options;
-    for(var i=1; i<opts.length; i++){   // skip placeholder at index 0
+    for(var i=1; i<opts.length; i++){
         var allowed = (rule.allow === null) || (opts[i].value === rule.allow);
         opts[i].disabled = !allowed;
     }
@@ -476,7 +532,6 @@ function onPlatformChange(platform){
     if(rule.allow){
         cs.value = rule.allow;
     } else {
-        // reset to placeholder
         cs.selectedIndex = 0;
     }
     hint.textContent    = rule.hint;
@@ -501,7 +556,7 @@ function determineShipment(){
     var rule     = document.getElementById('shipmentRule');
 
     if(!state){
-        display.innerHTML='<span style="color:var(--text-muted);font-style:italic;font-size:0.85rem;font-weight:400;">Select State / UT below to auto-fill</span>';
+        display.innerHTML='<span style="color:var(--text-muted);font-style:italic;font-size:14px;font-weight:400;">Select State / UT below to auto-fill</span>';
         display.style.borderColor='';
         hidden.value=''; rule.style.display='none'; return;
     }
@@ -517,7 +572,7 @@ function determineShipment(){
         type='National'; color='#2563eb';
         ruleText='🚀 National — '+state+' is outside the Regional zone';
     }
-    display.innerHTML='<span style="color:'+color+';font-size:1.05rem;letter-spacing:0.5px;">'+type+'</span>';
+    display.innerHTML='<span style="color:'+color+';font-size:16px;letter-spacing:0.5px;">'+type+'</span>';
     display.style.borderColor=color+'88';
     hidden.value=type;
     rule.textContent=ruleText; rule.style.display='block';
@@ -542,18 +597,15 @@ document.getElementById("orderForm").addEventListener("submit", function(e){
     var now = new Date();
     var entryDateTime = fmtDT(now);
 
-    // Gather form
     var fd = new FormData(this);
     var data = {};
     fd.forEach(function(v,k){ data[k]=v; });
 
-    // Attach server-side helpers
     data.entryDateTime = entryDateTime;
     data.serialStart   = SERIAL_START;
     data.sheetHeaders  = SHEET_HEADERS;
     data.action        = "submitOrder";
 
-    // Format date
     if(data.pickupDate){
         var parts = data.pickupDate.split('-');
         data.pickupDate = parts[2]+' '+MONTH_NAMES[parseInt(parts[1])-1]+' '+parts[0];
@@ -613,7 +665,7 @@ function resetForm(){
     for(var i=0;i<cs.options.length;i++) cs.options[i].disabled=false;
     document.getElementById('courierHint').style.display='none';
     document.getElementById('shipmentDisplay').innerHTML=
-        '<span style="color:var(--text-muted);font-style:italic;font-size:0.85rem;font-weight:400;">Select State / UT below to auto-fill</span>';
+        '<span style="color:var(--text-muted);font-style:italic;font-size:14px;font-weight:400;">Select State / UT below to auto-fill</span>';
     document.getElementById('shipmentTo').value='';
     document.getElementById('shipmentDisplay').style.borderColor='';
     document.getElementById('shipmentRule').style.display='none';
@@ -635,18 +687,15 @@ function clearHistory(){
     localStorage.removeItem(HISTORY_KEY); renderHistory([]);
 }
 
-// ── Fill form from history item ──
 function fillFromHistory(idx){
     var h=loadHistory(); var item=h[idx];
     if(!item) return;
     var f=document.getElementById('orderForm');
 
-    // Platform + courier
     document.getElementById('platformSelect').value = item.platform||'';
     if(item.platform) onPlatformChange(item.platform);
     setTimeout(function(){ document.getElementById('courierSelect').value = item.courier||''; }, 80);
 
-    // Pickup date (stored as "06 April 2026" → convert back)
     if(item.pickupDate){
         var p=item.pickupDate.split(' ');
         if(p.length===3){
@@ -657,7 +706,6 @@ function fillFromHistory(idx){
     }
     f.elements['pickupTime'].value  = item.pickupTime  || 'ForeNoon (FN)';
 
-    // Product
     f.elements['productName'].value = item.product     || '';
     f.elements['retailPrice'].value = item.retailPrice || '';
     f.elements['paymentType'].value = item.paymentType || 'Prepaid';
@@ -671,7 +719,6 @@ function fillFromHistory(idx){
     f.elements['pkgWgt'].value = item.pkgWgt || '';
     f.elements['bWgt'].value   = item.bWgt   || '';
 
-    // Dispatch
     f.elements['buyerName'].value = item.buyer    || '';
     f.elements['location'].value  = item.location || '';
     setTimeout(function(){
@@ -679,7 +726,6 @@ function fillFromHistory(idx){
         determineShipment();
     }, 100);
 
-    // Mark as editing
     var btn = document.getElementById('submitBtn');
     btn.innerHTML = '✏️ Submit as New Entry (from #'+item.serial+')';
     btn.classList.add('editing');
@@ -690,7 +736,6 @@ function fillFromHistory(idx){
     }, 300);
 }
 
-// ── Render detailed history cards ──
 function renderHistory(history){
     var list    = document.getElementById("historyList");
     var countEl = document.getElementById("historyCount");
@@ -706,7 +751,7 @@ function renderHistory(history){
         return '<div class="hist-row"><span class="hl">'+lbl+'</span><span class="hv">'+val+'</span></div>';
     }
     function dims(lbl,l,w,h,wt){
-        return '<div class="hist-row" style="flex-direction:column;gap:3px;">'
+        return '<div class="hist-row" style="flex-direction:column;gap:4px;">'
             +'<span class="hl">'+lbl+'</span>'
             +'<div class="dim-grid">'
             +'<div class="dim-cell"><div class="dl">L (cm)</div><div class="dv">'+(l||'–')+'</div></div>'
@@ -750,66 +795,5 @@ function renderHistory(history){
 renderHistory(loadHistory());
 </script>
 
-<!--
-╔══════════════════════════════════════════════════════════════════╗
-║  GOOGLE APPS SCRIPT — FULL doPost FUNCTION                      ║
-║  Paste this into your GAS editor and redeploy as Web App        ║
-╚══════════════════════════════════════════════════════════════════╝
-
-function doPost(e) {
-  try {
-    var data  = JSON.parse(e.postData.contents);
-    var ss    = SpreadsheetApp.openById("1Y1sE5fPODjevfYJXhTeJzi0djWGo5pdl2xy-obxhO0Q");
-    var sheet = ss.getSheetByName("Orders") || ss.getSheets()[0];
-
-    // ── AUTO-CREATE HEADER ROW if sheet is empty ──
-    if (sheet.getLastRow() === 0 || sheet.getRange(1,1).getValue() === "") {
-      var headers = [
-        "Entry Date & Time","Serial Number","Pickup Date","Pickup Day","Pickup Time",
-        "Platform","Courier Service","Product Name","Retail Price (Rs)","Payment Type",
-        "Prod L (cm)","Prod W (cm)","Prod H (cm)","Prod Wt (gm)",
-        "Pkg L (cm)","Pkg W (cm)","Pkg H (cm)","Pkg Wt (gm)",
-        "B.Wt (gms)","Shipment Type","Name of Buyer","Location / City","State / UT"
-      ];
-      sheet.getRange(1,1,1,headers.length).setValues([headers]);
-      sheet.getRange(1,1,1,headers.length)
-           .setBackground("#1e293b").setFontColor("#ffffff").setFontWeight("bold");
-      sheet.setFrozenRows(1);
-    }
-
-    // ── SERIAL NUMBER: starts from 604042, auto-increments ──
-    var SERIAL_START = parseInt(data.serialStart) || 604042;
-    var lastRow = sheet.getLastRow();
-    var lastSerial = 0;
-    if (lastRow > 1) {
-      var v = sheet.getRange(lastRow, 2).getValue();
-      lastSerial = parseInt(v) || 0;
-    }
-    var serialNumber = Math.max(SERIAL_START, lastSerial + 1);
-
-    // ── APPEND DATA ROW ──
-    sheet.appendRow([
-      data.entryDateTime,
-      serialNumber,
-      data.pickupDate, data.pickupDay, data.pickupTime,
-      data.platform,   data.courier,
-      data.productName, data.retailPrice, data.paymentType,
-      data.pLen,  data.pWid,  data.pHei,  data.pWgt,
-      data.pkgLen,data.pkgWid,data.pkgHei,data.pkgWgt,
-      data.bWgt,
-      data.shipmentTo, data.buyerName, data.location, data.state
-    ]);
-
-    return ContentService
-      .createTextOutput(JSON.stringify({status:"success", serialNumber:serialNumber}))
-      .setMimeType(ContentService.MimeType.JSON);
-
-  } catch(err) {
-    return ContentService
-      .createTextOutput(JSON.stringify({status:"error", message:err.toString()}))
-      .setMimeType(ContentService.MimeType.JSON);
-  }
-}
--->
 </body>
 </html>
