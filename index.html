@@ -553,12 +553,12 @@ select option:disabled{color:#999!important;font-style:italic;}
     </div>
     <div class="card-body">
       <div style="font-size:12px;line-height:1.55;opacity:.85;margin-bottom:10px;">
-        Point your camera at the <strong>shipping label or tax invoice</strong>. The Order&nbsp;ID, Invoice&nbsp;No., platform, product, price, payment, buyer, city &amp; state fill in automatically — then <strong>check them before saving</strong>.
+        Scan with the camera, or <strong>upload a photo or PDF</strong> of the <strong>shipping label or tax invoice</strong>. The Order&nbsp;ID, Invoice&nbsp;No., platform, product, price, payment, buyer, city &amp; state fill in automatically — then <strong>check them before saving</strong>.
       </div>
       <div style="display:flex;gap:10px;flex-wrap:wrap;">
         <button type="button" id="scanCamBtn" style="flex:1;min-width:150px;background:#00c5ff;color:#001018;border:none;border-radius:8px;padding:12px 14px;font-weight:700;font-size:13px;cursor:pointer;">📷 Scan with Camera</button>
-        <label style="flex:1;min-width:150px;text-align:center;background:transparent;color:#00c5ff;border:1px solid #00c5ff;border-radius:8px;padding:12px 14px;font-weight:700;font-size:13px;cursor:pointer;">🖼️ Upload Image
-          <input type="file" id="scanFileInput" accept="image/*" capture="environment" style="display:none;">
+        <label style="flex:1;min-width:150px;text-align:center;background:transparent;color:#00c5ff;border:1px solid #00c5ff;border-radius:8px;padding:12px 14px;font-weight:700;font-size:13px;cursor:pointer;">🖼️ Upload Image / PDF
+          <input type="file" id="scanFileInput" accept="image/*,application/pdf" style="display:none;">
         </label>
       </div>
       <div id="scanStatus" style="font-size:12.5px;margin-top:12px;display:none;line-height:1.5;"></div>
@@ -788,7 +788,7 @@ select option:disabled{color:#999!important;font-style:italic;}
 // APP VERSION — update this single line each release
 //   Small patch (bug fix, UI tweak): v1.1 → v1.2
 //   Big feature (new module, major change): v1.x → v2.0
-var APP_VERSION = "v9.0"; // ← change here on every release
+var APP_VERSION = "v9.1"; // ← change here on every release
 // ─────────────────────────────────────────────
 (function(){
     var chip = document.getElementById('verChip');
