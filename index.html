@@ -546,6 +546,25 @@ select option:disabled{color:#999!important;font-style:italic;}
 <div class="wrap">
 <form id="orderForm">
 
+  <!-- SCAN LABEL / INVOICE -->
+  <div class="card">
+    <div class="card-title"><span>Scan Label / Invoice</span>
+      <span style="font-size:10px;font-weight:500;letter-spacing:1px;color:rgba(0,197,255,.5);text-transform:none;">AI auto-fill</span>
+    </div>
+    <div class="card-body">
+      <div style="font-size:12px;line-height:1.55;opacity:.85;margin-bottom:10px;">
+        Point your camera at the <strong>shipping label or tax invoice</strong>. The Order&nbsp;ID, Invoice&nbsp;No., platform, product, price, payment, buyer, city &amp; state fill in automatically — then <strong>check them before saving</strong>.
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;">
+        <button type="button" id="scanCamBtn" style="flex:1;min-width:150px;background:#00c5ff;color:#001018;border:none;border-radius:8px;padding:12px 14px;font-weight:700;font-size:13px;cursor:pointer;">📷 Scan with Camera</button>
+        <label style="flex:1;min-width:150px;text-align:center;background:transparent;color:#00c5ff;border:1px solid #00c5ff;border-radius:8px;padding:12px 14px;font-weight:700;font-size:13px;cursor:pointer;">🖼️ Upload Image
+          <input type="file" id="scanFileInput" accept="image/*" capture="environment" style="display:none;">
+        </label>
+      </div>
+      <div id="scanStatus" style="font-size:12.5px;margin-top:12px;display:none;line-height:1.5;"></div>
+    </div>
+  </div>
+
   <!-- SYSTEM ALLOCATION -->
   <div class="card">
     <div class="card-title">
@@ -589,6 +608,11 @@ select option:disabled{color:#999!important;font-style:italic;}
       <div class="form-group">
         <label>Order ID <span class="sub">— marketplace Order ID; links this entry to the ERP</span></label>
         <input type="text" name="orderId" id="orderIdInput" placeholder="e.g. OD3377…, 408-1234567-1234567, Meesho sub-order" autocomplete="off">
+      </div>
+
+      <div class="form-group">
+        <label>Invoice Number <span class="sub">— from the tax invoice</span></label>
+        <input type="text" name="invoiceNumber" id="invoiceInput" placeholder="e.g. LWACJIC270000291" autocomplete="off">
       </div>
 
       <div class="form-group">
@@ -717,6 +741,17 @@ select option:disabled{color:#999!important;font-style:italic;}
   </div>
 
 </form>
+
+<!-- CAMERA SCAN MODAL -->
+<div id="scanModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:9999;align-items:center;justify-content:center;flex-direction:column;padding:16px;">
+  <video id="scanVideo" autoplay playsinline muted style="max-width:100%;max-height:68vh;border-radius:10px;border:1px solid #00c5ff;background:#000;"></video>
+  <canvas id="scanCanvas" style="display:none;"></canvas>
+  <div style="display:flex;gap:12px;margin-top:16px;">
+    <button type="button" id="scanCaptureBtn" style="background:#00c5ff;color:#001018;border:none;border-radius:8px;padding:14px 24px;font-weight:700;font-size:14px;cursor:pointer;">📸 Capture</button>
+    <button type="button" id="scanCancelBtn" style="background:transparent;color:#fff;border:1px solid #555;border-radius:8px;padding:14px 24px;font-weight:700;font-size:14px;cursor:pointer;">Cancel</button>
+  </div>
+  <div style="color:#9aa6b2;font-size:12px;margin-top:10px;text-align:center;">Fill the frame with the label / invoice — keep it flat &amp; well-lit.</div>
+</div>
 </div>
 
 <!-- RECENT SUBMISSIONS -->
@@ -753,7 +788,7 @@ select option:disabled{color:#999!important;font-style:italic;}
 // APP VERSION — update this single line each release
 //   Small patch (bug fix, UI tweak): v1.1 → v1.2
 //   Big feature (new module, major change): v1.x → v2.0
-var APP_VERSION = "v8.2"; // ← change here on every release
+var APP_VERSION = "v9.0"; // ← change here on every release
 // ─────────────────────────────────────────────
 (function(){
     var chip = document.getElementById('verChip');
@@ -773,7 +808,7 @@ var SHEET_HEADERS = [
     "Platform","Courier Service","Product Name","Retail Price (Rs)","Payment Type",
     "Prod L (cm)","Prod W (cm)","Prod H (cm)","Prod Wt (gm)",
     "Pkg L (cm)","Pkg W (cm)","Pkg H (cm)","Pkg Wt (gm)",
-    "B.Wt (gms)","Shipment Type","Name of Buyer","Location / City","State / UT","Order ID"
+    "B.Wt (gms)","Shipment Type","Name of Buyer","Location / City","State / UT","Order ID","Invoice Number"
 ];
 
 var MONTH_NAMES = ["January","February","March","April","May","June",
@@ -1078,6 +1113,102 @@ function determineShipment(){
 document.getElementById('stateDropdown').addEventListener('change', determineShipment);
 document.getElementById('locationInput').addEventListener('input',  determineShipment);
 
+// ── SCAN LABEL / INVOICE → OCR + DeepSeek extraction (key stays in GAS) ─────
+var _scanStream = null;
+function _scanSetStatus(msg, kind){
+  var el = document.getElementById('scanStatus'); if(!el) return;
+  el.style.display = 'block';
+  el.style.color = kind==='err' ? '#ff6b6b' : (kind==='ok' ? '#22c55e' : '#00c5ff');
+  el.innerHTML = msg;
+}
+function _openScanModal(){
+  var modal = document.getElementById('scanModal'), video = document.getElementById('scanVideo');
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    _scanSetStatus('Camera not available here — use “Upload Image” instead.','err'); return;
+  }
+  modal.style.display = 'flex';
+  navigator.mediaDevices.getUserMedia({ video:{ facingMode:{ ideal:'environment' } }, audio:false })
+    .then(function(s){ _scanStream=s; video.srcObject=s; })
+    .catch(function(){
+      navigator.mediaDevices.getUserMedia({ video:true })
+        .then(function(s){ _scanStream=s; video.srcObject=s; })
+        .catch(function(){ _closeScanModal(); _scanSetStatus('Could not open the camera — check permissions, or use “Upload Image”.','err'); });
+    });
+}
+function _closeScanModal(){
+  var modal = document.getElementById('scanModal'), video = document.getElementById('scanVideo');
+  if(_scanStream){ _scanStream.getTracks().forEach(function(t){ t.stop(); }); _scanStream=null; }
+  if(video) video.srcObject = null;
+  if(modal) modal.style.display = 'none';
+}
+function _captureFromVideo(){
+  var video = document.getElementById('scanVideo'), canvas = document.getElementById('scanCanvas');
+  var w = video.videoWidth||1280, h = video.videoHeight||720;
+  var scale = Math.min(1, 1600/Math.max(w,h));      // cap longest side to keep upload small
+  canvas.width = Math.round(w*scale); canvas.height = Math.round(h*scale);
+  canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+  var dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+  _closeScanModal();
+  _runScanExtract(dataUrl.split(',')[1], 'image/jpeg');
+}
+function _handleScanFile(file){
+  if(!file) return;
+  var reader = new FileReader();
+  reader.onload  = function(){ _runScanExtract(String(reader.result).split(',')[1], file.type||'image/jpeg'); };
+  reader.onerror = function(){ _scanSetStatus('Could not read that image.','err'); };
+  reader.readAsDataURL(file);
+}
+function _runScanExtract(b64, mime){
+  if(!b64){ _scanSetStatus('No image captured.','err'); return; }
+  _scanSetStatus('🔍 Reading the label… this takes a few seconds.','info');
+  fetch(SCRIPT_URL, { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+    body: JSON.stringify({ action:'scanExtract', imageBase64:b64, imageMime:mime }) })
+    .then(function(r){ return r.json(); })
+    .then(function(res){
+      if(res && res.status==='success' && res.fields){
+        var n = _applyExtractedFields(res.fields);
+        _scanSetStatus('✓ Scanned — '+n+' field'+(n===1?'':'s')+' filled. Please <strong>verify everything</strong> (especially Order ID &amp; Invoice No.), then complete the rest and Save.','ok');
+      } else {
+        _scanSetStatus('⚠️ '+((res&&res.message)||'Could not extract the details')+' — please enter the fields manually.','err');
+      }
+    })
+    .catch(function(){ _scanSetStatus('Network error while scanning — check your connection, or enter the fields manually.','err'); });
+}
+function _setVal(sel, val, fire){
+  if(val==null || val==='') return false;
+  var el = document.querySelector(sel); if(!el) return false;
+  el.value = val;
+  if(fire){ el.dispatchEvent(new Event('change',{bubbles:true})); el.dispatchEvent(new Event('input',{bubbles:true})); }
+  return true;
+}
+function _selectByText(el, text){
+  if(!el || !text) return false;
+  for(var i=0;i<el.options.length;i++){
+    if(el.options[i].text.trim().toLowerCase() === String(text).trim().toLowerCase()){
+      el.selectedIndex = i; el.dispatchEvent(new Event('change',{bubbles:true})); return true;
+    }
+  }
+  return false;
+}
+function _applyExtractedFields(f){
+  var n = 0;
+  if(_setVal('#orderIdInput', f.orderId)) n++;
+  if(_setVal('#invoiceInput', f.invoiceNumber)) n++;
+  if(_selectByText(document.getElementById('platformSelect'), f.platform)) n++;
+  if(_setVal('#pickupDate', f.shipDate, true)) n++;            // Ship Date → Pickup Date (Pickup Day auto-fills)
+  if(_setVal('#productInput', f.productName)) n++;
+  if(_setVal('input[name="retailPrice"]', f.retailPrice)) n++;
+  if(_selectByText(document.querySelector('select[name="paymentType"]'), f.paymentType)) n++;
+  if(_setVal('input[name="buyerName"]', f.buyerName)) n++;
+  if(_setVal('#locationInput', f.city)) n++;
+  if(_selectByText(document.getElementById('stateDropdown'), f.state)) n++;  // fires shipment-zone calc
+  return n;
+}
+document.getElementById('scanCamBtn').addEventListener('click', _openScanModal);
+document.getElementById('scanCancelBtn').addEventListener('click', _closeScanModal);
+document.getElementById('scanCaptureBtn').addEventListener('click', _captureFromVideo);
+document.getElementById('scanFileInput').addEventListener('change', function(){ _handleScanFile(this.files && this.files[0]); this.value=''; });
+
 // FORM SUBMIT
 document.getElementById("orderForm").addEventListener("submit", function(e){
     e.preventDefault();
@@ -1117,7 +1248,7 @@ document.getElementById("orderForm").addEventListener("submit", function(e){
             alert("SUCCESS!\n\nSaved to Google Sheet.\nSerial Number: "+result.serialNumber);
             addToHistory({
                 serial:result.serialNumber, entryDT:entryDateTime,
-                orderId:data.orderId, platform:data.platform, courier:data.courier,
+                orderId:data.orderId, invoiceNumber:data.invoiceNumber, platform:data.platform, courier:data.courier,
                 pickupDate:data.pickupDate, pickupDay:data.pickupDay, pickupTime:data.pickupTime,
                 product:data.productName, retailPrice:data.retailPrice, paymentType:data.paymentType,
                 pLen:data.pLen, pWid:data.pWid, pHei:data.pHei, pWgt:data.pWgt,

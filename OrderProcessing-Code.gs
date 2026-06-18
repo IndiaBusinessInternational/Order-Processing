@@ -1,6 +1,18 @@
 function doPost(e) {
   try {
     var data  = JSON.parse(e.postData.contents);
+
+    // ── ROUTE: image scan → OCR + DeepSeek extraction (no sheet write) ──────
+    // The form posts {action:'scanExtract', imageBase64, imageMime} when staff
+    // scan a label/invoice. We OCR the image and ask DeepSeek to return the
+    // fields as JSON, then send them back to pre-fill the form (staff verify).
+    if (data && data.action === 'scanExtract') {
+      var out;
+      try { out = handleScanExtract_(data); }
+      catch (ex) { out = { status: 'error', message: ex.toString() }; }
+      return ContentService.createTextOutput(JSON.stringify(out)).setMimeType(ContentService.MimeType.JSON);
+    }
+
     var ss    = SpreadsheetApp.openById("1Y1sE5fPODjevfYJXhTeJzi0djWGo5pdl2xy-obxhO0Q");
     var sheet = ss.getSheetByName("Orders") || ss.getSheets()[0];
 
@@ -55,6 +67,14 @@ function doPost(e) {
            .setBackground("#1e293b").setFontColor("#ffffff").setFontWeight("bold");
     }
 
+    // Ensure the "Invoice Number" column exists (same trailing-append approach).
+    var hdrRow2 = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    var hasInvoice = hdrRow2.some(function (h) { return String(h).trim() === "Invoice Number"; });
+    if (!hasInvoice) {
+      sheet.getRange(1, sheet.getLastColumn() + 1).setValue("Invoice Number")
+           .setBackground("#1e293b").setFontColor("#ffffff").setFontWeight("bold");
+    }
+
     // SERIAL NUMBER: starts from 604042, auto-increments
     var SERIAL_START = parseInt(data.serialStart) || 604042;
     var lastRow = sheet.getLastRow();
@@ -104,6 +124,12 @@ function doPost(e) {
     for (var oc = 0; oc < hdr2.length; oc++) {
       if (String(hdr2[oc]).trim() === "Order ID") {
         sheet.getRange(newRowNum, oc + 1).setNumberFormat("@").setValue(data.orderId || "");
+        break;
+      }
+    }
+    for (var ic = 0; ic < hdr2.length; ic++) {
+      if (String(hdr2[ic]).trim() === "Invoice Number") {
+        sheet.getRange(newRowNum, ic + 1).setNumberFormat("@").setValue(data.invoiceNumber || "");
         break;
       }
     }
@@ -172,4 +198,134 @@ function _send_(payload, cb) {
   return ContentService
     .createTextOutput(payload)
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+/* ============================================================================
+   SCAN EXTRACTION — OCR (Google Drive) + DeepSeek field extraction
+   ----------------------------------------------------------------------------
+   Called from doPost when action === 'scanExtract'. Pipeline:
+     1. Decode the camera image and OCR it with Google Drive's built-in OCR
+        (free, server-side — no second API key, no CORS).
+     2. Send the recognised text to DeepSeek with a strict JSON-only prompt.
+     3. Recover the JSON even if the model wraps it in prose, and normalise.
+   The DeepSeek key lives ONLY here, in Script Properties (never in the page).
+
+   SETUP (one time):
+     • Project Settings → Script properties → add  DEEPSEEK_API_KEY = sk-…
+     • Editor → Services (+) → add "Drive API" (advanced service) so the OCR
+       call below works. Then Deploy → Manage deployments → New version.
+   ============================================================================ */
+function handleScanExtract_(data) {
+  var b64  = String(data.imageBase64 || '');
+  var mime = String(data.imageMime || 'image/jpeg');
+  if (!b64) return { status: 'error', message: 'No image supplied' };
+
+  var ocrText = ocrImage_(Utilities.newBlob(Utilities.base64Decode(b64), mime, 'scan'));
+  if (!ocrText || !ocrText.trim()) {
+    return { status: 'error', message: 'OCR found no readable text — enter the details manually' };
+  }
+
+  var fields = deepSeekExtract_(ocrText);
+
+  // Meesho ships via Delhivery and the label carries no Ship Date — default it
+  // to today (IST) so staff don't have to look it up.
+  var todayIST = Utilities.formatDate(new Date(), 'Asia/Kolkata', 'yyyy-MM-dd');
+  if (String(fields.platform || '').toLowerCase().indexOf('meesho') >= 0 && !fields.shipDate) {
+    fields.shipDate = todayIST;
+  }
+
+  return { status: 'success', fields: fields, ocrText: ocrText };
+}
+
+// Google Drive OCR: upload the image as a Google Doc with OCR, read the text,
+// then delete the temporary file. Requires the "Drive API" advanced service.
+function ocrImage_(blob) {
+  var tmp = Drive.Files.insert(
+    { title: 'ibi-ocr-' + Date.now(), mimeType: 'application/vnd.google-apps.document' },
+    blob,
+    { ocr: true, ocrLanguage: 'en' }
+  );
+  var text = '';
+  try { text = DocumentApp.openById(tmp.id).getBody().getText(); } catch (e) {}
+  try { Drive.Files.remove(tmp.id); }
+  catch (e) { try { DriveApp.getFileById(tmp.id).setTrashed(true); } catch (e2) {} }
+  return text;
+}
+
+// Ask DeepSeek to turn the OCR text into the exact fields we need, as JSON only.
+function deepSeekExtract_(ocrText) {
+  var key = PropertiesService.getScriptProperties().getProperty('DEEPSEEK_API_KEY');
+  if (!key) throw new Error('DEEPSEEK_API_KEY is not set in Script Properties');
+
+  var sys = [
+    'You read Indian e-commerce shipping labels and tax invoices and return ONLY a JSON object.',
+    'No prose, no markdown, no code fences — just the JSON.',
+    'Keys (use "" when a value is not present):',
+    'orderId, invoiceNumber, platform, shipDate, productName, retailPrice, paymentType, buyerName, city, state.',
+    'platform must be one of: Amazon, Amazon Bazaar, Flipkart, Shopsy, ShopClues, Meesho, IBI Website, Offline.',
+    'shipDate must be YYYY-MM-DD (convert any printed date), else "".',
+    'retailPrice: digits only (no currency symbol/commas).',
+    'paymentType: "Prepaid" or "COD".',
+    'Flipkart Order IDs look like OD + 15-22 digits; Amazon like 408-1234567-1234567.'
+  ].join(' ');
+
+  var payload = {
+    model: 'deepseek-chat',
+    temperature: 0,
+    response_format: { type: 'json_object' },
+    messages: [
+      { role: 'system', content: sys },
+      { role: 'user',   content: 'Extract from this label/invoice text:\n\n' + ocrText }
+    ]
+  };
+
+  var res = UrlFetchApp.fetch('https://api.deepseek.com/chat/completions', {
+    method: 'post',
+    contentType: 'application/json',
+    headers: { Authorization: 'Bearer ' + key },
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  });
+
+  var code = res.getResponseCode();
+  var body = res.getContentText();
+  if (code === 401 || code === 403) throw new Error('DeepSeek rejected the API key (HTTP ' + code + ')');
+  if (code === 402) throw new Error('DeepSeek billing exhausted (HTTP 402) — top up credits');
+  if (code === 429) throw new Error('DeepSeek rate-limited (HTTP 429) — try again in a moment');
+  if (code < 200 || code >= 300) throw new Error('DeepSeek HTTP ' + code + ': ' + body.slice(0, 300));
+
+  var data = JSON.parse(body);
+  var content = (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '';
+  var f = recoverJson_(content) || {};
+
+  // Normalise to exactly the keys we expect, all strings.
+  var keys = ['orderId','invoiceNumber','platform','shipDate','productName','retailPrice','paymentType','buyerName','city','state'];
+  var out = {};
+  keys.forEach(function (k) { out[k] = (f[k] == null) ? '' : String(f[k]).trim(); });
+  out.retailPrice = out.retailPrice.replace(/[^0-9.]/g, '');
+  return out;
+}
+
+// Recover a JSON object from a model reply even if it's wrapped in prose or
+// ```json fences — balanced-brace scan from the first "{" (same robust approach
+// the Package Tracker uses across providers).
+function recoverJson_(s) {
+  s = String(s || '').replace(/```json/gi, '').replace(/```/g, '').trim();
+  try { return JSON.parse(s); } catch (e) {}
+  var start = s.indexOf('{');
+  if (start < 0) return null;
+  var depth = 0, inStr = false, esc = false;
+  for (var i = start; i < s.length; i++) {
+    var c = s[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (c === '\\') esc = true;
+      else if (c === '"') inStr = false;
+    } else if (c === '"') inStr = true;
+    else if (c === '{') depth++;
+    else if (c === '}') { depth--; if (depth === 0) {
+      try { return JSON.parse(s.slice(start, i + 1)); } catch (e) { return null; }
+    } }
+  }
+  return null;
 }
