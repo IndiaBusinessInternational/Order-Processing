@@ -587,6 +587,11 @@ select option:disabled{color:#999!important;font-style:italic;}
       </div>
 
       <div class="form-group">
+        <label>Order ID <span class="sub">— marketplace Order ID; links this entry to the ERP</span></label>
+        <input type="text" name="orderId" id="orderIdInput" placeholder="e.g. OD3377…, 408-1234567-1234567, Meesho sub-order" autocomplete="off">
+      </div>
+
+      <div class="form-group">
         <label>Courier Service</label>
         <div class="select-wrapper">
           <select name="courier" id="courierSelect" required>
@@ -748,7 +753,7 @@ select option:disabled{color:#999!important;font-style:italic;}
 // APP VERSION — update this single line each release
 //   Small patch (bug fix, UI tweak): v1.1 → v1.2
 //   Big feature (new module, major change): v1.x → v2.0
-var APP_VERSION = "v8.1"; // ← change here on every release
+var APP_VERSION = "v8.2"; // ← change here on every release
 // ─────────────────────────────────────────────
 (function(){
     var chip = document.getElementById('verChip');
@@ -768,7 +773,7 @@ var SHEET_HEADERS = [
     "Platform","Courier Service","Product Name","Retail Price (Rs)","Payment Type",
     "Prod L (cm)","Prod W (cm)","Prod H (cm)","Prod Wt (gm)",
     "Pkg L (cm)","Pkg W (cm)","Pkg H (cm)","Pkg Wt (gm)",
-    "B.Wt (gms)","Shipment Type","Name of Buyer","Location / City","State / UT"
+    "B.Wt (gms)","Shipment Type","Name of Buyer","Location / City","State / UT","Order ID"
 ];
 
 var MONTH_NAMES = ["January","February","March","April","May","June",
@@ -1112,7 +1117,7 @@ document.getElementById("orderForm").addEventListener("submit", function(e){
             alert("SUCCESS!\n\nSaved to Google Sheet.\nSerial Number: "+result.serialNumber);
             addToHistory({
                 serial:result.serialNumber, entryDT:entryDateTime,
-                platform:data.platform, courier:data.courier,
+                orderId:data.orderId, platform:data.platform, courier:data.courier,
                 pickupDate:data.pickupDate, pickupDay:data.pickupDay, pickupTime:data.pickupTime,
                 product:data.productName, retailPrice:data.retailPrice, paymentType:data.paymentType,
                 pLen:data.pLen, pWid:data.pWid, pHei:data.pHei, pWgt:data.pWgt,
