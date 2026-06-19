@@ -781,7 +781,7 @@ select option:disabled{color:#999!important;font-style:italic;}
 // APP VERSION — update this single line each release
 //   Small patch (bug fix, UI tweak): v1.1 → v1.2
 //   Big feature (new module, major change): v1.x → v2.0
-var APP_VERSION = "v10.5"; // ← change here on every release
+var APP_VERSION = "v10.6"; // ← change here on every release
 // ─────────────────────────────────────────────
 (function(){
     var chip = document.getElementById('verChip');
@@ -790,6 +790,56 @@ var APP_VERSION = "v10.5"; // ← change here on every release
         chip.appendChild(document.createTextNode(APP_VERSION));
     }
 })();
+
+/* ──────────────────────────────────────────────────────────────────────
+   OWNER MODE (discreet) — tap the version badge (top-left) and enter the
+   PIN to reveal owner-only actions. Daily staff never see these. Used for
+   "Mark already processed" so already-dispatched orders can be cleared from
+   the pending list WITHOUT re-keying the full packing form.
+   ↓↓↓ CHANGE THIS PIN to your own ↓↓↓
+   ────────────────────────────────────────────────────────────────────── */
+var OWNER_PIN = '1234';
+var _opOwner  = false;
+try { _opOwner = sessionStorage.getItem('ibi_op_owner') === '1'; } catch(e){}
+function _applyOpOwnerUI(){
+  var chip=document.getElementById('verChip');
+  if(chip){ chip.style.cursor='pointer';
+    chip.style.boxShadow = _opOwner ? '0 0 0 2px #ff9800 inset' : '';
+    chip.title = _opOwner ? 'Owner mode ON — tap to lock' : ''; }
+}
+function toggleOpOwner(){
+  if(_opOwner){ _opOwner=false; try{sessionStorage.removeItem('ibi_op_owner');}catch(e){} }
+  else { var p=prompt('Owner PIN:'); if(p===null) return;
+    if(p!==OWNER_PIN){ alert('Incorrect PIN.'); return; }
+    _opOwner=true; try{sessionStorage.setItem('ibi_op_owner','1');}catch(e){} }
+  _applyOpOwnerUI();
+  if(typeof _renderTrackerOrders==='function') _renderTrackerOrders();
+}
+(function(){ var c=document.getElementById('verChip'); if(c) c.addEventListener('click', toggleOpOwner); _applyOpOwnerUI(); })();
+
+/* Mark an order as already processed earlier → records it in the Tracker
+   "Dismissed" tab (server-side) so it permanently drops off the pending list.
+   Does NOT create a packing entry — the order is already in the Tracker/ERP. */
+function markProcessedEarlier(o, btn){
+  if(!o || !o.key){ alert('This order has no Order ID / AWB / Invoice to mark.'); return; }
+  if(!confirm('Mark this order as ALREADY PROCESSED and remove it from the pending list?\n\nBuyer: '+(o.buyerName||'-')+'\nOrder: '+(o.orderId||o.key)+'\n\nUse only for orders that were already dispatched earlier. This does NOT create a new packing entry.')) return;
+  if(btn){ btn.disabled=true; btn.textContent='Marking…'; }
+  fetch(SCRIPT_URL, { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+    body: JSON.stringify({ action:'dismissTrackerOrders', items:[{ key:o.key, buyerName:o.buyerName, platform:o.platform, savedOn:o.savedOn }] }) })
+    .then(function(r){ return r.json(); })
+    .then(function(res){
+      if(res && res.ok){
+        _trkOrders = _trkOrders.filter(function(x){ return x.key !== o.key; });
+        _renderTrackerOrders();
+        _trkSetStatus('✓ Marked “'+_trkEsc(o.buyerName||o.orderId||o.key)+'” as already processed — removed from the pending list.','ok');
+      } else {
+        if(btn){ btn.disabled=false; btn.textContent='✔ Mark already processed'; }
+        _trkSetStatus('⚠️ Could not mark as processed: '+((res&&res.error)||'unknown error')+'.','err');
+      }
+    })
+    .catch(function(){ if(btn){ btn.disabled=false; btn.textContent='✔ Mark already processed'; }
+      _trkSetStatus('Network error while marking as processed — please try again.','err'); });
+}
 
 var SCRIPT_URL  = "https://script.google.com/macros/s/AKfycbydsL-wCm-oJzXNEBf58q7FkM8JehYijkkiBd8NuzJScjIQ4beR06FSFNdLnZT_yEDq/exec";
 var SERIAL_START = 604042;
@@ -1174,10 +1224,12 @@ function _renderTrackerOrders(){
   for(var i=0;i<_trkView.length;i++){
     var o=_trkView[i];
     var line2=[o.platform, o.products, (o.amount?('₹'+o.amount):''), o.payType].filter(Boolean).join(' · ');
+    var ownerBtn = _opOwner ? ('<button class="op-mark-done" data-idx="'+i+'" style="margin-top:8px;background:transparent;border:1px solid #ff9800;color:#ff9800;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer;">✔ Mark already processed</button>') : '';
     html += '<div class="trk-row" data-idx="'+i+'" style="border:1px solid rgba(0,197,255,.25);border-radius:8px;padding:10px 12px;cursor:pointer;background:rgba(0,197,255,.05);">'
       + '<div style="font-weight:700;font-size:13px;color:#00c5ff;">'+_trkEsc(o.buyerName||'(no name)')+'</div>'
       + '<div style="font-size:11.5px;opacity:.85;margin-top:2px;">'+_trkEsc(line2)+'</div>'
       + '<div style="font-size:10.5px;opacity:.6;margin-top:3px;font-family:monospace;">'+_trkEsc(o.orderId||'no order id')+(o.invoiceNo?(' · '+_trkEsc(o.invoiceNo)):'')+'</div>'
+      + ownerBtn
       + '</div>';
   }
   list.innerHTML = html;
@@ -1260,6 +1312,14 @@ function _selectByText(el, text){
 }
 document.getElementById('trkLoadBtn').addEventListener('click', loadTrackerOrders);
 document.getElementById('trkList').addEventListener('click', function(e){
+  // owner action: "mark already processed" — handle first, don't also pre-fill
+  var mb=e.target;
+  while(mb && mb!==this){ if(mb.className && (''+mb.className).indexOf('op-mark-done')>=0){
+      e.stopPropagation();
+      var mi=parseInt(mb.getAttribute('data-idx'),10);
+      if(!isNaN(mi) && _trkView[mi]) markProcessedEarlier(_trkView[mi], mb);
+      return;
+  } mb=mb.parentNode; }
   var row=null, n=e.target;
   while(n && n!==this){ if(n.className && (''+n.className).indexOf('trk-row')>=0){ row=n; break; } n=n.parentNode; }
   if(!row) return;
