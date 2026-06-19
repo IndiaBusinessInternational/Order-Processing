@@ -552,10 +552,11 @@ select option:disabled{color:#999!important;font-style:italic;}
     </div>
     <div class="card-body">
       <div style="font-size:12px;line-height:1.55;opacity:.85;margin-bottom:10px;">
-        These are orders staff saved in the <strong>IBI Package Tracker</strong> that are <strong>not yet processed</strong>. Tap one to pre-fill Order&nbsp;ID, Invoice&nbsp;No., platform, ship date, product, price, payment &amp; buyer — then complete the packing details below and <strong>Save</strong>. Processed orders drop off the list.
+        These are orders staff saved in the <strong>IBI Package Tracker</strong> that are <strong>not yet processed</strong>. Tap one to pre-fill Order&nbsp;ID, Invoice&nbsp;No., platform, ship date, product, price, payment &amp; buyer — then complete the packing details below and <strong>Save</strong>. Processed orders drop off the list. <strong>No order listed, or an API down?</strong> Tap <strong>✍️ Enter manually</strong> and fill the form below by hand — every field is editable.
       </div>
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
         <button type="button" id="trkLoadBtn" style="flex:1;min-width:160px;background:#00c5ff;color:#001018;border:none;border-radius:8px;padding:12px 14px;font-weight:700;font-size:13px;cursor:pointer;">📦 Load pending orders</button>
+        <button type="button" id="manualEntryBtn" onclick="startManualEntry()" style="flex:1;min-width:140px;background:transparent;border:1px solid #00c5ff;color:#00c5ff;border-radius:8px;padding:12px 14px;font-weight:700;font-size:13px;cursor:pointer;">✍️ Enter manually</button>
         <span id="trkCount" style="font-size:12px;font-weight:700;color:#00c5ff;"></span>
       </div>
       <div id="trkScopeRow" style="display:none;gap:6px;margin-top:10px;flex-wrap:wrap;">
@@ -780,7 +781,7 @@ select option:disabled{color:#999!important;font-style:italic;}
 // APP VERSION — update this single line each release
 //   Small patch (bug fix, UI tweak): v1.1 → v1.2
 //   Big feature (new module, major change): v1.x → v2.0
-var APP_VERSION = "v10.4"; // ← change here on every release
+var APP_VERSION = "v10.5"; // ← change here on every release
 // ─────────────────────────────────────────────
 (function(){
     var chip = document.getElementById('verChip');
@@ -1153,10 +1154,10 @@ function loadTrackerOrders(){
         var sr=document.getElementById('trkScopeRow'); if(sr) sr.style.display = _trkOrders.length ? 'flex' : 'none';
         _renderTrackerOrders();
       } else {
-        _trkSetStatus('⚠️ '+((res&&res.error)||'Could not load orders from the Tracker')+'.','err');
+        _trkSetStatus('⚠️ '+((res&&res.error)||'Could not load orders from the Tracker')+'. You can still enter orders manually below (✍️ Enter manually).','err');
       }
     })
-    .catch(function(){ if(btn){ btn.disabled=false; btn.style.opacity='1'; } _trkSetStatus('Network error while loading orders — check your connection and try again.','err'); });
+    .catch(function(){ if(btn){ btn.disabled=false; btn.style.opacity='1'; } _trkSetStatus('Network error while loading orders — you can still enter orders manually below (✍️ Enter manually).','err'); });
 }
 function _renderTrackerOrders(){
   var list = document.getElementById('trkList'); if(!list) return;
@@ -1198,6 +1199,19 @@ function _trkMatchState(addr){
     if(t.length>2 && A.indexOf(t.toLowerCase())>=0) return t; }
   return '';
 }
+function _trkCityFromAddress(addr, state){
+  if(!addr) return '';
+  var parts=String(addr).split(',').map(function(s){return s.trim();}).filter(Boolean);
+  while(parts.length && /^\d{5,6}$/.test(parts[parts.length-1].replace(/\s/g,''))) parts.pop(); // drop trailing pincode
+  if(state){ var sl=state.toLowerCase();
+    for(var i=parts.length-1;i>=0;i--){ if(parts[i].toLowerCase()===sl) return i>0?parts[i-1]:''; } } // city = token before the state
+  return parts.length ? parts[parts.length-1] : '';
+}
+function startManualEntry(){
+  if(typeof resetForm==='function') resetForm();
+  _trkSetStatus('\u270D\uFE0F Manual entry mode — fill every field in the form below and Save. Use this whenever the Tracker list is empty or an API is down.','info');
+  var el=document.getElementById('orderIdInput'); if(el){ try{ el.scrollIntoView({behavior:'smooth',block:'center'}); el.focus(); }catch(e){} }
+}
 function prefillFromTracker(o){
   if(!o) return; var n=0;
   if(_setVal('#orderIdInput', o.orderId)) n++;
@@ -1209,11 +1223,12 @@ function prefillFromTracker(o){
   if(_selectByText(document.querySelector('select[name="paymentType"]'), o.payType)) n++;
   if(_setVal('input[name="buyerName"]', o.buyerName)) n++;
   var st=_trkMatchState(o.address); if(st && _selectByText(document.getElementById('stateDropdown'), st)) n++;
+  var city=_trkCityFromAddress(o.address, st); if(city && _setVal('#locationInput', city)) n++;
   var hint='';
   if(o.address) hint+=o.address;
   if(o.pincode) hint+=(hint?' — ':'')+'PIN '+o.pincode;
   if(o.buyerPhone) hint+=(hint?' · ':'')+'☎ '+o.buyerPhone;
-  _trkSetStatus('Pre-filled '+n+' field'+(n===1?'':'s')+'. <strong>Verify Order&nbsp;ID &amp; Invoice</strong>, then fill City/State &amp; packing details.'+(hint?('<br><span style="opacity:.8;">Ship-to: '+_trkEsc(hint)+'</span>'):''),'ok');
+  _trkSetStatus('Pre-filled '+n+' field'+(n===1?'':'s')+'. <strong>Verify Order&nbsp;ID, Invoice &amp; City/State</strong>, then complete the packing details.'+(hint?('<br><span style="opacity:.8;">Ship-to: '+_trkEsc(hint)+'</span>'):''),'ok');
   var el=document.getElementById('orderIdInput'); if(el&&el.scrollIntoView) el.scrollIntoView({behavior:'smooth',block:'center'});
 }
 function _trkDropProcessed(orderId, inv){
