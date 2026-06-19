@@ -555,7 +555,7 @@ select option:disabled{color:#999!important;font-style:italic;}
         These are orders staff saved in the <strong>IBI Package Tracker</strong> that are <strong>not yet processed</strong>. Tap one to pre-fill Order&nbsp;ID, Invoice&nbsp;No., platform, ship date, product, price, payment &amp; buyer — then complete the packing details below and <strong>Save</strong>. Processed orders drop off the list. <strong>No order listed, or an API down?</strong> Tap <strong>✍️ Enter manually</strong> and fill the form below by hand — every field is editable.
       </div>
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
-        <button type="button" id="trkLoadBtn" style="flex:1;min-width:160px;background:#00c5ff;color:#001018;border:none;border-radius:8px;padding:12px 14px;font-weight:700;font-size:13px;cursor:pointer;">📦 Load pending orders</button>
+        <button type="button" id="trkLoadBtn" style="flex:1;min-width:160px;background:#00c5ff;color:#001018;border:none;border-radius:8px;padding:12px 14px;font-weight:700;font-size:13px;cursor:pointer;">🔄 Refresh pending orders</button>
         <button type="button" id="manualEntryBtn" onclick="startManualEntry()" style="flex:1;min-width:140px;background:transparent;border:1px solid #00c5ff;color:#00c5ff;border-radius:8px;padding:12px 14px;font-weight:700;font-size:13px;cursor:pointer;">✍️ Enter manually</button>
         <span id="trkCount" style="font-size:12px;font-weight:700;color:#00c5ff;"></span>
       </div>
@@ -781,7 +781,7 @@ select option:disabled{color:#999!important;font-style:italic;}
 // APP VERSION — update this single line each release
 //   Small patch (bug fix, UI tweak): v1.1 → v1.2
 //   Big feature (new module, major change): v1.x → v2.0
-var APP_VERSION = "v10.6"; // ← change here on every release
+var APP_VERSION = "v10.7"; // ← change here on every release
 // ─────────────────────────────────────────────
 (function(){
     var chip = document.getElementById('verChip');
@@ -1311,6 +1311,9 @@ function _selectByText(el, text){
   return false;
 }
 document.getElementById('trkLoadBtn').addEventListener('click', loadTrackerOrders);
+/* Auto-load the pending list on page open — staff no longer need to tap the
+   button. The button stays as a manual refresh. Runs after first paint. */
+setTimeout(function(){ try { loadTrackerOrders(); } catch(e){} }, 200);
 document.getElementById('trkList').addEventListener('click', function(e){
   // owner action: "mark already processed" — handle first, don't also pre-fill
   var mb=e.target;
