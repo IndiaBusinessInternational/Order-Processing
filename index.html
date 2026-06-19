@@ -781,7 +781,7 @@ select option:disabled{color:#999!important;font-style:italic;}
 // APP VERSION — update this single line each release
 //   Small patch (bug fix, UI tweak): v1.1 → v1.2
 //   Big feature (new module, major change): v1.x → v2.0
-var APP_VERSION = "v10.7"; // ← change here on every release
+var APP_VERSION = "v10.8"; // ← change here on every release
 // ─────────────────────────────────────────────
 (function(){
     var chip = document.getElementById('verChip');
@@ -798,7 +798,7 @@ var APP_VERSION = "v10.7"; // ← change here on every release
    the pending list WITHOUT re-keying the full packing form.
    ↓↓↓ CHANGE THIS PIN to your own ↓↓↓
    ────────────────────────────────────────────────────────────────────── */
-var OWNER_PIN = '1234';
+var OWNER_PIN = '8899';
 var _opOwner  = false;
 try { _opOwner = sessionStorage.getItem('ibi_op_owner') === '1'; } catch(e){}
 function _applyOpOwnerUI(){
