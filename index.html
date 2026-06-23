@@ -781,7 +781,7 @@ select option:disabled{color:#999!important;font-style:italic;}
 // APP VERSION — update this single line each release
 //   Small patch (bug fix, UI tweak): v1.1 → v1.2
 //   Big feature (new module, major change): v1.x → v2.0
-var APP_VERSION = "v10.8"; // ← change here on every release
+var APP_VERSION = "v10.9"; // ← change here on every release
 // ─────────────────────────────────────────────
 (function(){
     var chip = document.getElementById('verChip');
@@ -1244,20 +1244,97 @@ function _trkSetScope(scope){
   }
   _renderTrackerOrders();
 }
-function _trkMatchState(addr){
-  var sel=document.getElementById('stateDropdown'); if(!sel||!addr) return '';
-  var A=String(addr).toLowerCase();
-  for(var i=0;i<sel.options.length;i++){ var t=sel.options[i].text.trim();
-    if(t.length>2 && A.indexOf(t.toLowerCase())>=0) return t; }
+/* ── Address → State / City parser (robust)  [v10.9 interchange fix] ───────
+   The Package Tracker hands us only a single combined shippingAddress string
+   (plus a separate pincode). Marketplaces format it inconsistently: some glue
+   "Tamil Nadu - 629001" or "Kochi 682001" together, some spell states as one
+   word ("Tamilnadu") or use old names ("Pondicherry"/"Orissa"), and pincodes
+   sometimes ride inside the last field. The previous logic matched the state by
+   a naive substring scan in dropdown order, and anchored the city with an exact
+   "===" token match — so a glued "State - PIN" tail dropped the STATE into the
+   City box (real city lost). That was the State/City interchange. These helpers
+   normalise first, find the state by a WHOLE WORD nearest the END of the
+   address, then take the cleaned token beside it as the city — and never let
+   the state string leak into the city field. The returned state text is the
+   exact dropdown label, so the dropdown + Shipment auto-rule keep working. */
+function _normTok(s){
+  return String(s||'').toLowerCase()
+    .replace(/&/g,' and ')
+    .replace(/\bnct\b/g,' ')
+    .replace(/[^a-z0-9 ]+/g,' ')
+    .replace(/\s+/g,' ').trim();
+}
+var _STATE_CANON = {};                                    // normalised key → exact dropdown label
+(function(){
+  function reg(canon, aliases){
+    _STATE_CANON[_normTok(canon)] = canon;
+    for(var i=0;i<(aliases||[]).length;i++) _STATE_CANON[_normTok(aliases[i])] = canon;
+  }
+  for(var i=0;i<indiaStates.length;i++) reg(indiaStates[i]);          // every dropdown state itself
+  reg("Tamil Nadu", ["Tamilnadu","TN"]);                              // + common variants / old names
+  reg("Puducherry", ["Pondicherry","Pondy","Puduchery"]);
+  reg("Odisha", ["Orissa"]);
+  reg("Uttarakhand", ["Uttaranchal"]);
+  reg("Delhi", ["New Delhi","NCT of Delhi","Delhi NCR"]);
+  reg("Jammu and Kashmir", ["J&K","Jammu & Kashmir"]);
+  reg("Andaman and Nicobar Islands", ["Andaman & Nicobar","Andaman Nicobar","A&N Islands"]);
+  reg("Dadra and Nagar Haveli and Daman and Diu", ["Daman and Diu","Daman & Diu","Dadra and Nagar Haveli"]);
+})();
+function _stripPin(s){                                     // drop India PINs + "PIN" labels from a token
+  return String(s||'')
+    .replace(/\bpin\s*code\b/gi,' ')
+    .replace(/\bpin\b/gi,' ')
+    .replace(/\b\d{6}\b/g,' ')
+    .replace(/[-\u2013\u2014:;,]+\s*$/,' ')
+    .replace(/\s+/g,' ').trim();
+}
+function _addrTokens(addr){                                // comma split → pin-stripped, junk-free tokens
+  return String(addr||'').split(',')
+    .map(_stripPin)
+    .filter(function(t){ return t && !/^\d+$/.test(t); });
+}
+function _isPureState(tok){                                // token IS exactly a state/alias (whole token)
+  return !!_STATE_CANON[_normTok(_stripPin(tok))];
+}
+function _canonState(tok){                                 // token → dropdown label, or '' if no state in it
+  var n=_normTok(_stripPin(tok)); if(!n) return '';
+  if(_STATE_CANON[n]) return _STATE_CANON[n];              // whole token is a state/alias
+  for(var key in _STATE_CANON){                            // a state appears as a whole word inside the token
+    if(!_STATE_CANON.hasOwnProperty(key) || key.length<3) continue;
+    if(new RegExp('(^|\\s)'+key.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'(\\s|$)').test(n)) return _STATE_CANON[key];
+  }
+  return '';
+}
+function _trkMatchState(addr){                             // state = whole-word match nearest the end
+  var toks=_addrTokens(addr);
+  for(var i=toks.length-1;i>=0;i--){ var c=_canonState(toks[i]); if(c) return c; }
   return '';
 }
 function _trkCityFromAddress(addr, state){
-  if(!addr) return '';
-  var parts=String(addr).split(',').map(function(s){return s.trim();}).filter(Boolean);
-  while(parts.length && /^\d{5,6}$/.test(parts[parts.length-1].replace(/\s/g,''))) parts.pop(); // drop trailing pincode
-  if(state){ var sl=state.toLowerCase();
-    for(var i=parts.length-1;i>=0;i--){ if(parts[i].toLowerCase()===sl) return i>0?parts[i-1]:''; } } // city = token before the state
-  return parts.length ? parts[parts.length-1] : '';
+  var toks=_addrTokens(addr); if(!toks.length) return '';
+  var canon = state ? (_canonState(state)||state) : _trkMatchState(addr);
+  var si=-1;                                               // index of state-bearing token, nearest end
+  for(var i=toks.length-1;i>=0;i--){ if(_canonState(toks[i])===canon){ si=i; break; } }
+  // (a) city merged into the same field as the state, e.g. "Chennai Tamil Nadu"
+  if(si>=0){
+    var raw=toks[si], cut=raw.toLowerCase().indexOf(String(canon).toLowerCase());
+    if(cut>0){
+      var head=raw.slice(0,cut).replace(/[-\u2013\u2014,]+\s*$/,'').trim();
+      var w=head.split(/\s+/).filter(Boolean);
+      if(w.length){ var last=w[w.length-1]; if(!_isPureState(last) && !/^\d+$/.test(last)) return last; }
+    }
+  }
+  // (b) city = usable token next to the state; prefer the one BEFORE it, but if
+  //     that "before" is the very first field (usually the buyer name) and a
+  //     usable token FOLLOWS the state, take the following one (State,City order)
+  function ok(t){ return t && !/^\d+$/.test(t) && !_isPureState(t); }
+  if(si>0){
+    if(si-1===0 && si+1<toks.length && ok(toks[si+1])) return toks[si+1];
+    if(ok(toks[si-1])) return toks[si-1];
+  }
+  if(si>=0 && si+1<toks.length && ok(toks[si+1])) return toks[si+1];
+  for(var j=toks.length-1;j>=0;j--){ if(j!==si && ok(toks[j])) return toks[j]; }
+  return '';
 }
 function startManualEntry(){
   if(typeof resetForm==='function') resetForm();
@@ -1275,7 +1352,7 @@ function prefillFromTracker(o){
   if(_selectByText(document.querySelector('select[name="paymentType"]'), o.payType)) n++;
   if(_setVal('input[name="buyerName"]', o.buyerName)) n++;
   var st=_trkMatchState(o.address); if(st && _selectByText(document.getElementById('stateDropdown'), st)) n++;
-  var city=_trkCityFromAddress(o.address, st); if(city && _setVal('#locationInput', city)) n++;
+  var city=_trkCityFromAddress(o.address, st); if(city && _setVal('#locationInput', city, true)) n++;
   var hint='';
   if(o.address) hint+=o.address;
   if(o.pincode) hint+=(hint?' — ':'')+'PIN '+o.pincode;
