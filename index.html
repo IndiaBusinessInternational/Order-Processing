@@ -784,7 +784,7 @@ select option:disabled{color:#999!important;font-style:italic;}
 // Scheme:
 //   • Small patch  (bug fix / UI tweak): bump the part after the dot →  v10.9 → v10.10 → v10.11 …
 //   • Big feature  (new module / major change): bump the whole number, drop the dot →  v10.x → v11 → v12 …
-var APP_VERSION = "v10.11"; // ← change here on every release
+var APP_VERSION = "v10.12"; // ← change here on every release
 // ─────────────────────────────────────────────
 (function(){
     var chip = document.getElementById('verChip');
@@ -799,24 +799,74 @@ var APP_VERSION = "v10.11"; // ← change here on every release
    PIN to reveal owner-only actions. Daily staff never see these. Used for
    "Mark already processed" so already-dispatched orders can be cleared from
    the pending list WITHOUT re-keying the full packing form.
-   ↓↓↓ CHANGE THIS PIN to your own ↓↓↓
+
+   The PIN is NO LONGER stored here. It lives only in the Apps Script
+   (Script Property OWNER_PIN). The browser sends the entered PIN to the
+   verifyOwnerPin endpoint and, on success, keeps only a short-lived signed
+   token (ibi_op_token) which it presents on owner-only requests.
    ────────────────────────────────────────────────────────────────────── */
-var OWNER_PIN = '8899';
-var _opOwner  = false;
-try { _opOwner = sessionStorage.getItem('ibi_op_owner') === '1'; } catch(e){}
+var _opToken = '';
+try { _opToken = sessionStorage.getItem('ibi_op_token') || ''; } catch(e){}
+var _opOwner = !!_opToken;
 function _applyOpOwnerUI(){
   var chip=document.getElementById('verChip');
   if(chip){ chip.style.cursor='pointer';
     chip.style.boxShadow = _opOwner ? '0 0 0 2px #ff9800 inset' : '';
     chip.title = _opOwner ? 'Owner mode ON — tap to lock' : ''; }
 }
-function toggleOpOwner(){
-  if(_opOwner){ _opOwner=false; try{sessionStorage.removeItem('ibi_op_owner');}catch(e){} }
-  else { var p=prompt('Owner PIN:'); if(p===null) return;
-    if(p!==OWNER_PIN){ alert('Incorrect PIN.'); return; }
-    _opOwner=true; try{sessionStorage.setItem('ibi_op_owner','1');}catch(e){} }
+/* Masked PIN prompt — replaces the native prompt() so the PIN is never
+   shown in clear text (no shoulder-surfing / screen-share leaks). */
+function _ownerPinPrompt(cb){
+  var ov=document.createElement('div');
+  ov.setAttribute('style','position:fixed;inset:0;background:rgba(0,0,0,0.88);z-index:1000;display:flex;align-items:center;justify-content:center;');
+  ov.innerHTML =
+    '<div style="background:#11202b;border:1px solid rgba(0,197,255,0.35);border-radius:14px;padding:20px 18px;width:280px;max-width:90vw;box-shadow:0 10px 40px rgba(0,0,0,0.6);font-family:sans-serif;">'+
+      '<div style="color:#00c5ff;font-weight:700;letter-spacing:1px;margin-bottom:12px;text-transform:uppercase;font-size:13px;">Owner PIN</div>'+
+      '<input id="_opPinInput" type="password" inputmode="numeric" autocomplete="off" '+
+        'style="width:100%;box-sizing:border-box;padding:11px 12px;border-radius:9px;border:1px solid rgba(255,255,255,0.2);background:#0a151c;color:#fff;font-size:18px;letter-spacing:6px;outline:none;" />'+
+      '<div style="display:flex;gap:8px;margin-top:14px;justify-content:flex-end;">'+
+        '<button id="_opPinCancel" style="padding:8px 16px;border-radius:18px;border:1px solid rgba(255,255,255,0.25);background:transparent;color:#fff;cursor:pointer;">Cancel</button>'+
+        '<button id="_opPinOk" style="padding:8px 18px;border-radius:18px;border:none;background:#00c5ff;color:#06222e;font-weight:700;cursor:pointer;">OK</button>'+
+      '</div>'+
+    '</div>';
+  document.body.appendChild(ov);
+  var input=ov.querySelector('#_opPinInput');
+  function close(val){ if(ov.parentNode) ov.parentNode.removeChild(ov); cb(val); }
+  ov.querySelector('#_opPinOk').addEventListener('click',function(){ close(input.value); });
+  ov.querySelector('#_opPinCancel').addEventListener('click',function(){ close(null); });
+  ov.addEventListener('click',function(e){ if(e.target===ov) close(null); });
+  input.addEventListener('keydown',function(e){
+    if(e.key==='Enter'){ e.preventDefault(); close(input.value); }
+    else if(e.key==='Escape'){ e.preventDefault(); close(null); }
+  });
+  input.focus();
+}
+function _opLockOwner(){
+  _opOwner=false; _opToken='';
+  try{ sessionStorage.removeItem('ibi_op_token'); }catch(e){}
   _applyOpOwnerUI();
   if(typeof _renderTrackerOrders==='function') _renderTrackerOrders();
+}
+function toggleOpOwner(){
+  if(_opOwner){ _opLockOwner(); return; }
+  _ownerPinPrompt(function(p){
+    if(p===null) return;
+    // PIN is verified server-side; we never compare it here.
+    fetch(SCRIPT_URL, { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({ action:'verifyOwnerPin', pin:p }) })
+      .then(function(r){ return r.json(); })
+      .then(function(res){
+        if(res && res.ok && res.token){
+          _opToken=res.token; _opOwner=true;
+          try{ sessionStorage.setItem('ibi_op_token', _opToken); }catch(e){}
+          _applyOpOwnerUI();
+          if(typeof _renderTrackerOrders==='function') _renderTrackerOrders();
+        } else {
+          alert('Incorrect PIN.');
+        }
+      })
+      .catch(function(){ alert('Could not verify PIN — check your connection and try again.'); });
+  });
 }
 (function(){ var c=document.getElementById('verChip'); if(c) c.addEventListener('click', toggleOpOwner); _applyOpOwnerUI(); })();
 
@@ -825,16 +875,21 @@ function toggleOpOwner(){
    Does NOT create a packing entry — the order is already in the Tracker/ERP. */
 function markProcessedEarlier(o, btn){
   if(!o || !o.key){ alert('This order has no Order ID / AWB / Invoice to mark.'); return; }
+  if(!_opOwner || !_opToken){ alert('Owner mode required. Tap the version badge and enter the Owner PIN first.'); return; }
   if(!confirm('Mark this order as ALREADY PROCESSED and remove it from the pending list?\n\nBuyer: '+(o.buyerName||'-')+'\nOrder: '+(o.orderId||o.key)+'\n\nUse only for orders that were already dispatched earlier. This does NOT create a new packing entry.')) return;
   if(btn){ btn.disabled=true; btn.textContent='Marking…'; }
   fetch(SCRIPT_URL, { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
-    body: JSON.stringify({ action:'dismissTrackerOrders', items:[{ key:o.key, buyerName:o.buyerName, platform:o.platform, savedOn:o.savedOn }] }) })
+    body: JSON.stringify({ action:'dismissTrackerOrders', token:_opToken, items:[{ key:o.key, buyerName:o.buyerName, platform:o.platform, savedOn:o.savedOn }] }) })
     .then(function(r){ return r.json(); })
     .then(function(res){
       if(res && res.ok){
         _trkOrders = _trkOrders.filter(function(x){ return x.key !== o.key; });
         _renderTrackerOrders();
         _trkSetStatus('✓ Marked “'+_trkEsc(o.buyerName||o.orderId||o.key)+'” as already processed — removed from the pending list.','ok');
+      } else if(res && res.error==='unauthorized'){
+        if(btn){ btn.disabled=false; btn.textContent='✔ Mark already processed'; }
+        _opLockOwner();
+        _trkSetStatus('Owner session expired — tap the version badge and re-enter the PIN, then try again.','err');
       } else {
         if(btn){ btn.disabled=false; btn.textContent='✔ Mark already processed'; }
         _trkSetStatus('⚠️ Could not mark as processed: '+((res&&res.error)||'unknown error')+'.','err');
