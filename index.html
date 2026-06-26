@@ -202,6 +202,7 @@ label{
   text-transform:uppercase;
 }
 label .sub{font-size:10px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--text-muted);}
+label .req{color:#e53935;font-weight:700;margin-left:3px;}  /* mandatory-field marker */
 input,select{
   width:100%;padding:12px 14px;
   font-family:"Roboto",sans-serif;
@@ -687,22 +688,22 @@ select option:disabled{color:#999!important;font-style:italic;}
 
       <div class="section-label">Dimensions (Product)</div>
       <div class="grid-4">
-        <div class="form-group"><label>L (cm)</label><input type="number" step="any" name="pLen" required></div>
-        <div class="form-group"><label>W (cm)</label><input type="number" step="any" name="pWid" required></div>
-        <div class="form-group"><label>H (cm)</label><input type="number" step="any" name="pHei" required></div>
-        <div class="form-group"><label>Wt (gm)</label><input type="number" step="any" name="pWgt" required></div>
+        <div class="form-group"><label>L (cm)<span class="req">*</span></label><input type="number" step="any" name="pLen" required></div>
+        <div class="form-group"><label>W (cm)<span class="req">*</span></label><input type="number" step="any" name="pWid" required></div>
+        <div class="form-group"><label>H (cm)<span class="req">*</span></label><input type="number" step="any" name="pHei" required></div>
+        <div class="form-group"><label>Wt (gm)<span class="req">*</span></label><input type="number" step="any" name="pWgt" required></div>
       </div>
 
       <div class="section-label">Dimensions (Package)</div>
       <div class="grid-4">
-        <div class="form-group"><label>L (cm)</label><input type="number" step="any" name="pkgLen" required></div>
-        <div class="form-group"><label>W (cm)</label><input type="number" step="any" name="pkgWid" required></div>
-        <div class="form-group"><label>H (cm)</label><input type="number" step="any" name="pkgHei" required></div>
-        <div class="form-group"><label>Wt (gm)</label><input type="number" step="any" name="pkgWgt" required></div>
+        <div class="form-group"><label>L (cm)<span class="req">*</span></label><input type="number" step="any" name="pkgLen" required></div>
+        <div class="form-group"><label>W (cm)<span class="req">*</span></label><input type="number" step="any" name="pkgWid" required></div>
+        <div class="form-group"><label>H (cm)<span class="req">*</span></label><input type="number" step="any" name="pkgHei" required></div>
+        <div class="form-group"><label>Wt (gm)<span class="req">*</span></label><input type="number" step="any" name="pkgWgt" required></div>
       </div>
 
       <div class="form-group" style="margin-top:16px;">
-        <label>B.Wt (gms) <span class="sub">— Carton Box Weight</span></label>
+        <label>B.Wt (gms)<span class="req">*</span> <span class="sub">— Carton Box Weight</span></label>
         <input type="number" step="any" name="bWgt" placeholder="Carton box weight in grams" required>
       </div>
     </div>
@@ -783,7 +784,7 @@ select option:disabled{color:#999!important;font-style:italic;}
 // Scheme:
 //   • Small patch  (bug fix / UI tweak): bump the part after the dot →  v10.9 → v10.10 → v10.11 …
 //   • Big feature  (new module / major change): bump the whole number, drop the dot →  v10.x → v11 → v12 …
-var APP_VERSION = "v10.10"; // ← change here on every release
+var APP_VERSION = "v10.11"; // ← change here on every release
 // ─────────────────────────────────────────────
 (function(){
     var chip = document.getElementById('verChip');
