@@ -1279,7 +1279,27 @@ var _STATE_CANON = {};                                    // normalised key → 
   reg("Jammu and Kashmir", ["J&K","Jammu & Kashmir"]);
   reg("Andaman and Nicobar Islands", ["Andaman & Nicobar","Andaman Nicobar","A&N Islands"]);
   reg("Dadra and Nagar Haveli and Daman and Diu", ["Daman and Diu","Daman & Diu","Dadra and Nagar Haveli"]);
+  // Marketplaces (Flipkart/Amazon) print the ship-to state as an ISO 3166-2:IN
+  // code — "IN-TN", "IN-KA", "IN-KL"… — so register the full code set as aliases.
+  // (Variant codes included: CG/CT, TS/TG, UK/UT, OD/OR all map to the right state.)
+  var _ISO = {
+    AP:"Andhra Pradesh", AR:"Arunachal Pradesh", AS:"Assam", BR:"Bihar",
+    CG:"Chhattisgarh", CT:"Chhattisgarh", GA:"Goa", GJ:"Gujarat", HR:"Haryana",
+    HP:"Himachal Pradesh", JH:"Jharkhand", KA:"Karnataka", KL:"Kerala",
+    MP:"Madhya Pradesh", MH:"Maharashtra", MN:"Manipur", ML:"Meghalaya",
+    MZ:"Mizoram", NL:"Nagaland", OD:"Odisha", OR:"Odisha", PB:"Punjab",
+    RJ:"Rajasthan", SK:"Sikkim", TN:"Tamil Nadu", TG:"Telangana", TS:"Telangana",
+    TR:"Tripura", UP:"Uttar Pradesh", UK:"Uttarakhand", UT:"Uttarakhand",
+    WB:"West Bengal", AN:"Andaman and Nicobar Islands", CH:"Chandigarh",
+    DN:"Dadra and Nagar Haveli and Daman and Diu", DD:"Dadra and Nagar Haveli and Daman and Diu",
+    DL:"Delhi", JK:"Jammu and Kashmir", LA:"Ladakh", LD:"Lakshadweep", PY:"Puducherry"
+  };
+  for(var code in _ISO){ if(_ISO.hasOwnProperty(code)) reg(_ISO[code], [code]); }
 })();
+// Strip a leading India/country prefix so an ISO code like "IN-TN" → "TN".
+// Marketplaces print the ship-to state as "IN-XX"; _normTok turns that into
+// "in xx", which masks the bare 2-letter code from the lookups below.
+function _stripCountry(n){ return String(n||'').replace(/^(?:in|ind|india)\s+/, ''); }
 function _stripPin(s){                                     // drop India PINs + "PIN" labels from a token
   return String(s||'')
     .replace(/\bpin\s*code\b/gi,' ')
@@ -1294,14 +1314,18 @@ function _addrTokens(addr){                                // comma split → pi
     .filter(function(t){ return t && !/^\d+$/.test(t); });
 }
 function _isPureState(tok){                                // token IS exactly a state/alias (whole token)
-  return !!_STATE_CANON[_normTok(_stripPin(tok))];
+  var n=_normTok(_stripPin(tok));
+  return !!(_STATE_CANON[n] || _STATE_CANON[_stripCountry(n)]);   // also "IN-TN" → "tn"
 }
 function _canonState(tok){                                 // token → dropdown label, or '' if no state in it
   var n=_normTok(_stripPin(tok)); if(!n) return '';
+  var nc=_stripCountry(n);                                 // "in tn" → "tn"  (Flipkart/Amazon ISO codes)
   if(_STATE_CANON[n]) return _STATE_CANON[n];              // whole token is a state/alias
+  if(nc!==n && _STATE_CANON[nc]) return _STATE_CANON[nc];  // whole token is a country-prefixed state code
   for(var key in _STATE_CANON){                            // a state appears as a whole word inside the token
     if(!_STATE_CANON.hasOwnProperty(key) || key.length<3) continue;
-    if(new RegExp('(^|\\s)'+key.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'(\\s|$)').test(n)) return _STATE_CANON[key];
+    var re=new RegExp('(^|\\s)'+key.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'(\\s|$)');
+    if(re.test(n)||re.test(nc)) return _STATE_CANON[key];
   }
   return '';
 }
