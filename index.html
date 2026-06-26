@@ -778,10 +778,12 @@ select option:disabled{color:#999!important;font-style:italic;}
 <script>
 // CONFIG
 // ─────────────────────────────────────────────
-// APP VERSION — update this single line each release
-//   Small patch (bug fix, UI tweak): v1.1 → v1.2
-//   Big feature (new module, major change): v1.x → v2.0
-var APP_VERSION = "v10.9"; // ← change here on every release
+// APP VERSION — update this SINGLE line on every release.
+// Shown in the top-left badge so anyone can see which build is live.
+// Scheme:
+//   • Small patch  (bug fix / UI tweak): bump the part after the dot →  v10.9 → v10.10 → v10.11 …
+//   • Big feature  (new module / major change): bump the whole number, drop the dot →  v10.x → v11 → v12 …
+var APP_VERSION = "v10.10"; // ← change here on every release
 // ─────────────────────────────────────────────
 (function(){
     var chip = document.getElementById('verChip');
@@ -1244,7 +1246,7 @@ function _trkSetScope(scope){
   }
   _renderTrackerOrders();
 }
-/* ── Address → State / City parser (robust)  [v10.9 interchange fix] ───────
+/* ── Address → State / City parser (robust)  [v10.10 ISO state-code fix] ───
    The Package Tracker hands us only a single combined shippingAddress string
    (plus a separate pincode). Marketplaces format it inconsistently: some glue
    "Tamil Nadu - 629001" or "Kochi 682001" together, some spell states as one
