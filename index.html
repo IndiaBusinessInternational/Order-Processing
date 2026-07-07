@@ -81,12 +81,12 @@ body::before{
 
 /* ── LOGO HERO ── */
 .logo-hero{
-  width:100%;background:#000;
+  width:100%;background:#000;padding:14px 12px;
   display:flex;align-items:center;justify-content:center;
   overflow:hidden;border-bottom:2px solid var(--cyan);
   position:relative;z-index:1;
 }
-.logo-hero img{width:100%;max-width:700px;height:auto;display:block;}
+.logo-hero img{width:100%;max-width:340px;height:auto;display:block;}
 
 /* ── TOP BAR ── */
 .topbar{
@@ -784,7 +784,7 @@ select option:disabled{color:#999!important;font-style:italic;}
 // Scheme:
 //   • Small patch  (bug fix / UI tweak): bump the part after the dot →  v10.9 → v10.10 → v10.11 …
 //   • Big feature  (new module / major change): bump the whole number, drop the dot →  v10.x → v11 → v12 …
-var APP_VERSION = "v10.14"; // ← change here on every release
+var APP_VERSION = "v10.15"; // ← change here on every release
 // ─────────────────────────────────────────────
 (function(){
     var chip = document.getElementById('verChip');
