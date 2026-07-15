@@ -800,7 +800,7 @@ select option:disabled{color:#999!important;font-style:italic;}
 // Scheme:
 //   • Small patch  (bug fix / UI tweak): bump the part after the dot →  v10.9 → v10.10 → v10.11 …
 //   • Big feature  (new module / major change): bump the whole number, drop the dot →  v10.x → v11 → v12 …
-var APP_VERSION = "v10.19"; // ← change here on every release
+var APP_VERSION = "v10.20"; // ← change here on every release
 // ─────────────────────────────────────────────
 (function(){
     var chip = document.getElementById('verChip');
@@ -1399,6 +1399,20 @@ document.getElementById('locationInput').addEventListener('input',  determineShi
 // The form's own backend relays the Tracker's saved records (action
 // 'getTrackerOrders') and drops anything already processed here. Staff tap a
 // row to pre-fill the form, then complete the packing fields and Save.
+/* ── AMAZON FBA — nothing for us to pack ───────────────────────────────────
+   FBA orders are picked, packed and shipped by Amazon from their own
+   fulfilment centre. They still get scanned into the Package Tracker (we want
+   their delivery status and the sales row), but they must never appear here as
+   work to process — there is no parcel in our warehouse.
+
+   Amazon prints the fulfilment-centre code as the tax invoice prefix
+   (CJB1-60, MAA4-214); our own self-ship (Easy Ship) invoices are IN-457,
+   IN-468 … Verified against all 1,091 live Tracker rows: matches the 18 FBA
+   rows exactly, and none of the 467 IN- self-ship rows. */
+function _opIsFBA(o){
+  return /^[A-Z]{2,4}\d-\d+$/.test(String((o && o.invoiceNo) || '').trim().toUpperCase());
+}
+
 var _trkOrders = [];       // full pending list from the backend (all dates)
 var _trkView   = [];       // subset currently shown (after the scope filter)
 var _trkScope  = 'today';  // 'today' | '7d' | 'all'
@@ -1438,7 +1452,7 @@ function loadTrackerOrders(){
     .then(function(res){
       if(btn){ btn.disabled=false; btn.style.opacity='1'; }
       if(res && res.ok){
-        _trkOrders = res.orders || [];
+        _trkOrders = (res.orders || []).filter(function(o){ return !_opIsFBA(o); });
         _trkLoaded = true;
         var sr=document.getElementById('trkScopeRow'); if(sr) sr.style.display = _trkOrders.length ? 'flex' : 'none';
         _renderTrackerOrders();
