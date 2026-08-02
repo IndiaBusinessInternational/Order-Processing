@@ -800,7 +800,7 @@ select option:disabled{color:#999!important;font-style:italic;}
 // Scheme:
 //   • Small patch  (bug fix / UI tweak): bump the part after the dot →  v10.9 → v10.10 → v10.11 …
 //   • Big feature  (new module / major change): bump the whole number, drop the dot →  v10.x → v11 → v12 …
-var APP_VERSION = "v10.23"; // ← change here on every release
+var APP_VERSION = "v10.24"; // ← change here on every release
 // ─────────────────────────────────────────────
 (function(){
     var chip = document.getElementById('verChip');
@@ -1222,6 +1222,58 @@ var IBI_PRODUCTS = [
     "White Kolam Powder, 15x10x5 cm, 1 Kg",
     "Wooden Half Stool, 25x25x25 cm,1235 gm, 1 Qty"
 ];
+
+// ═════════════ LIVE PRODUCT CATALOGUE FEED ═════════════
+// The list above is a snapshot. The live one is IBI_Complete_Product_Master_HSN_GST.xlsx
+// in Google Drive, republished as catalogue.json by the Multi-Calculator's sync workflow
+// every few minutes — so editing that spreadsheet updates this app on its own, with no
+// code change and no redeploy.
+//
+// The snapshot above stays as the offline fallback and as the floor: a short, malformed
+// or unreachable payload is ignored rather than applied, so a bad feed can never empty
+// the picker. The last good copy is kept in localStorage for offline starts.
+var IBI_CATALOGUE_FEED_URL = 'https://calculator.indiabusinessinternational.online/catalogue.json';
+
+function ibiCatalogueNames(products) {
+  if (!Array.isArray(products) || products.length < 50) return null;
+  var names = [];
+  for (var i = 0; i < products.length; i++) {
+    var p = products[i];
+    if (p && p.n) names.push(String(p.n));
+  }
+  return names.length >= 50 ? names : null;
+}
+
+function ibiRefreshCatalogueFeed() {
+  try {
+    var cached = JSON.parse(localStorage.getItem('ibi_catalogue_feed') || 'null');
+    if (cached && cached.products) ibiApplyCatalogueFeed(cached.products);
+  } catch (err) { /* corrupt cache — the snapshot stands */ }
+
+  fetch(IBI_CATALOGUE_FEED_URL + '?t=' + Date.now(), { cache: 'no-store' })
+    .then(function (res) { return res.ok ? res.json() : Promise.reject(res.status); })
+    .then(function (data) {
+      if (ibiApplyCatalogueFeed(data.products)) {
+        try { localStorage.setItem('ibi_catalogue_feed', JSON.stringify(data)); } catch (err) {}
+      }
+    })
+    .catch(function () { /* offline, or the feed is down — keep what we have */ });
+}
+
+function ibiApplyCatalogueFeed(products) {
+  var names = ibiCatalogueNames(products);
+  if (!names) return false;
+  IBI_PRODUCTS.length = 0;
+  for (var i = 0; i < names.length; i++) IBI_PRODUCTS.push(names[i]);
+  // The picker filters the array on each keystroke — nothing to rebuild.
+  return true;
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', function () { setTimeout(ibiRefreshCatalogueFeed, 400); });
+} else {
+  setTimeout(ibiRefreshCatalogueFeed, 400);
+}
 // PRODUCT COMBOBOX — custom dropdown that works reliably on mobile + desktop
 (function setupProductCombo(){
     var input = document.getElementById("productInput");
