@@ -805,7 +805,7 @@ select option:disabled{color:#999!important;font-style:italic;}
 // Scheme:
 //   • Small patch  (bug fix / UI tweak): bump the part after the dot →  v10.9 → v10.10 → v10.11 …
 //   • Big feature  (new module / major change): bump the whole number, drop the dot →  v10.x → v11 → v12 …
-var APP_VERSION = "v11"; // ← change here on every release
+var APP_VERSION = "v11.1"; // ← change here on every release
 // ─────────────────────────────────────────────
 (function(){
     var chip = document.getElementById('verChip');
@@ -1284,46 +1284,43 @@ if (document.readyState === 'loading') {
 }
 
 /* ═════════════ IBI FASHION JEWELLERY — STOCK LINK ═════════════
-   Imitation jewellery lives in its own register at
-   jewellery.indiabusinessinternational.online. Two jobs here:
+   Imitation jewellery lives in its own register, which runs on the CEO's
+   laptop (Node server in IBI Fashion Jewellery\Backend\, reachable over a
+   Cloudflare Tunnel). Two jobs here:
 
      1. its product names are merged into the picker above, so what staff
         select is a name that register recognises exactly;
      2. the moment an order is saved, the piece sold is deducted from that
         register's stock.
 
-   Both calls go out as JSONP, which sidesteps CORS entirely and cannot break
-   an order save — a jewellery failure is reported and then ignored, because
-   the order itself is already safely in the sheet.
+   Neither call can break an order save — a jewellery failure is reported in a
+   toast and then ignored, because the order itself is already in the sheet.
+   And if the laptop is off, nothing is lost: that server polls the Orders feed
+   every few minutes and applies whatever it missed the next time it runs.
 
-   ⚠ PASTE THE JEWELLERY BACKEND'S /exec URL BELOW once it is deployed.
-      Leave it blank and this whole section quietly does nothing; the jewellery
-      app's own hourly catch-up sync still keeps stock correct. */
-var FJ_GAS_URL = "";
+   ⚠ TWO THINGS TO FILL IN once the laptop server is reachable:
+        FJ_API_URL   https://jewellery.indiabusinessinternational.online/api
+        FJ_PUSH_KEY  the "pushKey" from Backend\config.json on the laptop
+      Leave either blank and this whole section quietly does nothing — the
+      laptop's own poll still keeps stock correct, just not instantly. */
+var FJ_API_URL  = "";
+var FJ_PUSH_KEY = "";
 
 var FJ_NAMES = [];   // jewellery product names currently merged into the picker
 
-function fjJsonp(url, params, timeoutMs) {
-  return new Promise(function (resolve, reject) {
-    var cbName = 'fjcb_' + Math.random().toString(36).slice(2);
-    var qs = ['callback=' + cbName, 't=' + Date.now()];
-    for (var k in params) {
-      if (Object.prototype.hasOwnProperty.call(params, k) && params[k] != null && params[k] !== '') {
-        qs.push(encodeURIComponent(k) + '=' + encodeURIComponent(params[k]));
-      }
-    }
-    var s = document.createElement('script'), settled = false;
-    function cleanup() {
-      settled = true;
-      try { delete window[cbName]; } catch (e) { window[cbName] = undefined; }
-      if (s.parentNode) s.parentNode.removeChild(s);
-    }
-    window[cbName] = function (data) { cleanup(); resolve(data || {}); };
-    s.onerror = function () { if (!settled) { cleanup(); reject(new Error('unreachable')); } };
-    s.src = url + (url.indexOf('?') >= 0 ? '&' : '?') + qs.join('&');
-    document.head.appendChild(s);
-    setTimeout(function () { if (!settled) { cleanup(); reject(new Error('timed out')); } }, timeoutMs || 20000);
-  });
+/* Plain JSON POST. The laptop server answers the CORS preflight and echoes
+   this origin back, so no JSONP gymnastics are needed. */
+function fjCall(action, payload, timeoutMs) {
+  if (!FJ_API_URL) return Promise.reject(new Error('not configured'));
+  var body = payload || {};
+  body.action = action;
+  if (FJ_PUSH_KEY) body.pushKey = FJ_PUSH_KEY;
+  return fetch(FJ_API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(timeoutMs || 15000)
+  }).then(function (r) { return r.json(); });
 }
 
 /* Append jewellery names that are not already in the picker. Idempotent. */
@@ -1337,29 +1334,30 @@ function fjMergeNames() {
   IBI_PRODUCTS.sort(function (a, b) { return a.localeCompare(b); });
 }
 
+/* Names are cached, so the picker keeps the jewellery items even on a day the
+   laptop happens to be off. */
 function fjLoadNames() {
-  if (!FJ_GAS_URL) return;
   try {
     var cached = JSON.parse(localStorage.getItem('ibi_fj_names') || 'null');
     if (cached && cached.length) { FJ_NAMES = cached; fjMergeNames(); }
   } catch (e) { /* corrupt cache — the live call below fixes it */ }
+  if (!FJ_API_URL) return;
 
-  fjJsonp(FJ_GAS_URL, { action: 'listNames' }).then(function (r) {
+  fjCall('listNames', {}, 12000).then(function (r) {
     if (!r || !r.ok || !r.items) return;
     FJ_NAMES = r.items.map(function (it) { return String(it.n); }).filter(Boolean);
     try { localStorage.setItem('ibi_fj_names', JSON.stringify(FJ_NAMES)); } catch (e) {}
     fjMergeNames();
-  }).catch(function () { /* register offline — the cached names still stand */ });
+  }).catch(function () { /* laptop off — the cached names still stand */ });
 }
 
 /* Called after an order is saved. Never blocks, never alerts on failure. */
 function fjDeductStock(data, serialNumber) {
-  if (!FJ_GAS_URL) return;
+  if (!FJ_API_URL) return;
   var qty = parseInt(data.saleQty, 10);
   if (isNaN(qty) || qty < 1) qty = 1;
 
-  fjJsonp(FJ_GAS_URL, {
-    action: 'deductStock',
+  fjCall('deductStock', {
     productName: data.productName,
     qty: qty,
     serial: serialNumber,
@@ -1386,7 +1384,7 @@ function fjDeductStock(data, serialNumber) {
       fjToast(msg, 'ok');
     }
   }).catch(function () {
-    fjToast('Could not reach the jewellery register — it will catch up on its own next sync.', 'info');
+    fjToast('Jewellery register not reachable (laptop off?) — it applies this sale itself on its next check.', 'info');
   });
 }
 
