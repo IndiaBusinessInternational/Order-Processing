@@ -805,7 +805,7 @@ select option:disabled{color:#999!important;font-style:italic;}
 // Scheme:
 //   • Small patch  (bug fix / UI tweak): bump the part after the dot →  v10.9 → v10.10 → v10.11 …
 //   • Big feature  (new module / major change): bump the whole number, drop the dot →  v10.x → v11 → v12 …
-var APP_VERSION = "v11.1"; // ← change here on every release
+var APP_VERSION = "v11.2"; // ← change here on every release
 // ─────────────────────────────────────────────
 (function(){
     var chip = document.getElementById('verChip');
@@ -882,6 +882,8 @@ function toggleOpOwner(){
           try{ sessionStorage.setItem('ibi_op_token', _opToken); }catch(e){}
           _applyOpOwnerUI();
           if(typeof _renderTrackerOrders==='function') _renderTrackerOrders();
+          // First unlock on this device? Offer to link the jewellery register.
+          if(typeof fjPromptKey==='function') setTimeout(function(){ fjPromptKey(false); }, 300);
         } else {
           alert('Incorrect PIN.');
         }
@@ -1298,20 +1300,37 @@ if (document.readyState === 'loading') {
    And if the laptop is off, nothing is lost: that server polls the Orders feed
    every few minutes and applies whatever it missed the next time it runs.
 
-   ⚠ TWO THINGS TO FILL IN once the laptop server is reachable:
-        FJ_API_URL   https://jewellery.indiabusinessinternational.online/api
-        FJ_PUSH_KEY  the "pushKey" from Backend\config.json on the laptop
-      Leave either blank and this whole section quietly does nothing — the
-      laptop's own poll still keeps stock correct, just not instantly. */
-var FJ_API_URL  = "";
+   ⚠ THE KEY IS NOT IN THIS FILE, AND MUST NOT BE. This repo is PUBLIC, so a
+      key committed here would let anyone read the register or push a bogus
+      deduction. It is stored per device in localStorage instead, entered once
+      through Owner Mode (tap the version badge). Until it is set on a device,
+      that device simply does not push — and nothing is lost, because the
+      laptop polls the Orders feed itself every few minutes.
+      To change it later: clear localStorage 'ibi_fj_push_key' and unlock
+      Owner Mode again. */
+var FJ_API_URL  = "https://jewellery.indiabusinessinternational.online/api";
 var FJ_PUSH_KEY = "";
+try { FJ_PUSH_KEY = localStorage.getItem('ibi_fj_push_key') || ''; } catch (e) {}
+
+/* Offered once, when the owner unlocks on a device that has no key yet. */
+function fjPromptKey(force) {
+  if (!force && FJ_PUSH_KEY) return;
+  var v = prompt('IBI Fashion Jewellery — push key for this device.\n\n'
+    + 'Find it as "pushKey" in Backend\\config.json on the laptop that runs the\n'
+    + 'jewellery server. Leave blank to skip; sales still sync within a few minutes.',
+    FJ_PUSH_KEY || '');
+  if (v === null) return;
+  FJ_PUSH_KEY = v.trim();
+  try { localStorage.setItem('ibi_fj_push_key', FJ_PUSH_KEY); } catch (e) {}
+  if (FJ_PUSH_KEY) { fjLoadNames(); fjToast('Jewellery register linked on this device.', 'ok'); }
+}
 
 var FJ_NAMES = [];   // jewellery product names currently merged into the picker
 
 /* Plain JSON POST. The laptop server answers the CORS preflight and echoes
    this origin back, so no JSONP gymnastics are needed. */
 function fjCall(action, payload, timeoutMs) {
-  if (!FJ_API_URL) return Promise.reject(new Error('not configured'));
+  if (!FJ_API_URL || !FJ_PUSH_KEY) return Promise.reject(new Error('not linked on this device'));
   var body = payload || {};
   body.action = action;
   if (FJ_PUSH_KEY) body.pushKey = FJ_PUSH_KEY;
@@ -1341,7 +1360,7 @@ function fjLoadNames() {
     var cached = JSON.parse(localStorage.getItem('ibi_fj_names') || 'null');
     if (cached && cached.length) { FJ_NAMES = cached; fjMergeNames(); }
   } catch (e) { /* corrupt cache — the live call below fixes it */ }
-  if (!FJ_API_URL) return;
+  if (!FJ_API_URL || !FJ_PUSH_KEY) return;
 
   fjCall('listNames', {}, 12000).then(function (r) {
     if (!r || !r.ok || !r.items) return;
@@ -1353,7 +1372,7 @@ function fjLoadNames() {
 
 /* Called after an order is saved. Never blocks, never alerts on failure. */
 function fjDeductStock(data, serialNumber) {
-  if (!FJ_API_URL) return;
+  if (!FJ_API_URL || !FJ_PUSH_KEY) return;
   var qty = parseInt(data.saleQty, 10);
   if (isNaN(qty) || qty < 1) qty = 1;
 
