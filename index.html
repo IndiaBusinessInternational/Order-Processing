@@ -309,6 +309,7 @@ input:focus,select:focus{
   z-index:1;
 }
 .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+.grid-3{display:grid;grid-template-columns:.6fr 1fr 1fr;gap:9px;}
 .grid-4{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;}
 .grid-4 label{font-size:10px;letter-spacing:0;text-align:center;text-transform:none;}
 .grid-4 input{padding:10px 4px;text-align:center;font-size:14px;}
@@ -686,7 +687,11 @@ select option:disabled{color:#999!important;font-style:italic;}
         </div>
       </div>
 
-      <div class="grid-2">
+      <div class="grid-3">
+        <div class="form-group">
+          <label>Qty Sold</label>
+          <input type="number" step="1" min="1" name="saleQty" id="saleQty" value="1" required>
+        </div>
         <div class="form-group">
           <label>Retail Price (Rs)</label>
           <input type="number" step="any" name="retailPrice" placeholder="0" required>
@@ -800,7 +805,7 @@ select option:disabled{color:#999!important;font-style:italic;}
 // Scheme:
 //   • Small patch  (bug fix / UI tweak): bump the part after the dot →  v10.9 → v10.10 → v10.11 …
 //   • Big feature  (new module / major change): bump the whole number, drop the dot →  v10.x → v11 → v12 …
-var APP_VERSION = "v10.25"; // ← change here on every release
+var APP_VERSION = "v11"; // ← change here on every release
 // ─────────────────────────────────────────────
 (function(){
     var chip = document.getElementById('verChip');
@@ -1265,6 +1270,9 @@ function ibiApplyCatalogueFeed(products) {
   if (!names) return false;
   IBI_PRODUCTS.length = 0;
   for (var i = 0; i < names.length; i++) IBI_PRODUCTS.push(names[i]);
+  // The catalogue feed replaces the whole array, so the jewellery register has
+  // to be folded back in afterwards or its names would vanish from the picker.
+  fjMergeNames();
   // The picker filters the array on each keystroke — nothing to rebuild.
   return true;
 }
@@ -1274,6 +1282,137 @@ if (document.readyState === 'loading') {
 } else {
   setTimeout(ibiRefreshCatalogueFeed, 400);
 }
+
+/* ═════════════ IBI FASHION JEWELLERY — STOCK LINK ═════════════
+   Imitation jewellery lives in its own register at
+   jewellery.indiabusinessinternational.online. Two jobs here:
+
+     1. its product names are merged into the picker above, so what staff
+        select is a name that register recognises exactly;
+     2. the moment an order is saved, the piece sold is deducted from that
+        register's stock.
+
+   Both calls go out as JSONP, which sidesteps CORS entirely and cannot break
+   an order save — a jewellery failure is reported and then ignored, because
+   the order itself is already safely in the sheet.
+
+   ⚠ PASTE THE JEWELLERY BACKEND'S /exec URL BELOW once it is deployed.
+      Leave it blank and this whole section quietly does nothing; the jewellery
+      app's own hourly catch-up sync still keeps stock correct. */
+var FJ_GAS_URL = "";
+
+var FJ_NAMES = [];   // jewellery product names currently merged into the picker
+
+function fjJsonp(url, params, timeoutMs) {
+  return new Promise(function (resolve, reject) {
+    var cbName = 'fjcb_' + Math.random().toString(36).slice(2);
+    var qs = ['callback=' + cbName, 't=' + Date.now()];
+    for (var k in params) {
+      if (Object.prototype.hasOwnProperty.call(params, k) && params[k] != null && params[k] !== '') {
+        qs.push(encodeURIComponent(k) + '=' + encodeURIComponent(params[k]));
+      }
+    }
+    var s = document.createElement('script'), settled = false;
+    function cleanup() {
+      settled = true;
+      try { delete window[cbName]; } catch (e) { window[cbName] = undefined; }
+      if (s.parentNode) s.parentNode.removeChild(s);
+    }
+    window[cbName] = function (data) { cleanup(); resolve(data || {}); };
+    s.onerror = function () { if (!settled) { cleanup(); reject(new Error('unreachable')); } };
+    s.src = url + (url.indexOf('?') >= 0 ? '&' : '?') + qs.join('&');
+    document.head.appendChild(s);
+    setTimeout(function () { if (!settled) { cleanup(); reject(new Error('timed out')); } }, timeoutMs || 20000);
+  });
+}
+
+/* Append jewellery names that are not already in the picker. Idempotent. */
+function fjMergeNames() {
+  if (!FJ_NAMES.length) return;
+  var have = {};
+  for (var i = 0; i < IBI_PRODUCTS.length; i++) have[IBI_PRODUCTS[i]] = true;
+  for (var j = 0; j < FJ_NAMES.length; j++) {
+    if (!have[FJ_NAMES[j]]) IBI_PRODUCTS.push(FJ_NAMES[j]);
+  }
+  IBI_PRODUCTS.sort(function (a, b) { return a.localeCompare(b); });
+}
+
+function fjLoadNames() {
+  if (!FJ_GAS_URL) return;
+  try {
+    var cached = JSON.parse(localStorage.getItem('ibi_fj_names') || 'null');
+    if (cached && cached.length) { FJ_NAMES = cached; fjMergeNames(); }
+  } catch (e) { /* corrupt cache — the live call below fixes it */ }
+
+  fjJsonp(FJ_GAS_URL, { action: 'listNames' }).then(function (r) {
+    if (!r || !r.ok || !r.items) return;
+    FJ_NAMES = r.items.map(function (it) { return String(it.n); }).filter(Boolean);
+    try { localStorage.setItem('ibi_fj_names', JSON.stringify(FJ_NAMES)); } catch (e) {}
+    fjMergeNames();
+  }).catch(function () { /* register offline — the cached names still stand */ });
+}
+
+/* Called after an order is saved. Never blocks, never alerts on failure. */
+function fjDeductStock(data, serialNumber) {
+  if (!FJ_GAS_URL) return;
+  var qty = parseInt(data.saleQty, 10);
+  if (isNaN(qty) || qty < 1) qty = 1;
+
+  fjJsonp(FJ_GAS_URL, {
+    action: 'deductStock',
+    productName: data.productName,
+    qty: qty,
+    serial: serialNumber,
+    orderId: data.orderId,
+    platform: data.platform,
+    buyerName: data.buyerName,
+    source: 'order-processing'
+  }, 15000).then(function (r) {
+    if (!r || !r.ok) return;                 // backend refused — nothing to say
+    if (!r.matched) return;                  // not a jewellery item, which is the norm
+    if (!r.applied) {
+      fjToast('Jewellery stock already updated for serial ' + serialNumber + '.', 'info');
+      return;
+    }
+    var msg = '💎 ' + r.sku + ' — stock ' + r.before + ' → <b>' + r.after + '</b>'
+            + (qty > 1 ? ' (' + qty + ' sold)' : '');
+    if (r.oversold) {
+      fjToast(msg + '<br><b>Oversold by ' + r.oversold + '</b> — only ' + r.before + ' were on the register.', 'warn');
+    } else if (r.status === 'out') {
+      fjToast(msg + '<br><b>That was the last one</b> — now out of stock.', 'warn');
+    } else if (r.status === 'low') {
+      fjToast(msg + '<br>Running low — worth reordering.', 'warn');
+    } else {
+      fjToast(msg, 'ok');
+    }
+  }).catch(function () {
+    fjToast('Could not reach the jewellery register — it will catch up on its own next sync.', 'info');
+  });
+}
+
+function fjToast(html, kind) {
+  var host = document.getElementById('fjToasts');
+  if (!host) {
+    host = document.createElement('div');
+    host.id = 'fjToasts';
+    host.style.cssText = 'position:fixed;left:50%;bottom:18px;transform:translateX(-50%);'
+      + 'z-index:9999;display:flex;flex-direction:column;gap:8px;width:min(520px,94vw);';
+    document.body.appendChild(host);
+  }
+  var colours = { ok: '#10b981', warn: '#f59e0b', info: '#00c5ff' };
+  var t = document.createElement('div');
+  t.style.cssText = 'padding:11px 15px;border-radius:11px;font-size:13px;font-weight:600;line-height:1.5;'
+    + 'background:#0f1724;color:#e8f4ff;box-shadow:0 10px 30px rgba(0,0,0,.45);'
+    + 'border:1px solid ' + (colours[kind] || colours.info) + ';';
+  t.innerHTML = html;
+  host.appendChild(t);
+  setTimeout(function () {
+    t.style.transition = 'opacity .3s'; t.style.opacity = '0';
+    setTimeout(function () { if (t.parentNode) t.parentNode.removeChild(t); }, 320);
+  }, 7000);
+}
+
+setTimeout(fjLoadNames, 900);
 // PRODUCT COMBOBOX — custom dropdown that works reliably on mobile + desktop
 (function setupProductCombo(){
     var input = document.getElementById("productInput");
@@ -1678,6 +1817,10 @@ function prefillFromTracker(o){
   if(_selectByText(document.getElementById('platformSelect'), o.platform)) n++;
   var iso=_trkParseDate(o.shipDate); if(iso && _setVal('#pickupDate', iso, true)) n++;
   if(_setVal('#productInput', o.products)) n++;
+  // Qty comes straight off the marketplace record, so a 2-piece order takes 2
+  // off the IBI Fashion Jewellery register rather than 1.
+  var tq=parseInt(String(o.qty||'').replace(/[^0-9]/g,''),10);
+  if(!isNaN(tq) && tq>0 && _setVal('#saleQty', tq)) n++;
   if(_setVal('input[name="retailPrice"]', o.amount)) n++;
   if(_selectByText(document.querySelector('select[name="paymentType"]'), o.payType)) n++;
   if(_setVal('input[name="buyerName"]', o.buyerName)) n++;
@@ -1786,6 +1929,9 @@ document.getElementById("orderForm").addEventListener("submit", function(e){
                 bWgt:data.bWgt, shipmentTo:data.shipmentTo,
                 buyer:data.buyerName, location:data.location, state:data.state
             });
+            // If the piece sold is on the IBI Fashion Jewellery register, take
+            // it off stock there too. Fire-and-forget — the order is saved.
+            fjDeductStock(data, result.serialNumber);
             resetForm();
             _trkDropProcessed(data.orderId, data.invoiceNumber);
         } else { alert("Error: "+result.message); }
@@ -1800,6 +1946,7 @@ document.getElementById("orderForm").addEventListener("submit", function(e){
 
 function resetForm(){
     document.getElementById("orderForm").reset();
+    var sq=document.getElementById('saleQty'); if(sq) sq.value=1;
     document.getElementById('pickupDate').valueAsDate=new Date();
     document.getElementById('pickupDate').dispatchEvent(new Event('change'));
     var cs=document.getElementById('courierSelect');
