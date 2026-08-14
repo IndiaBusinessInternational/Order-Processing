@@ -689,11 +689,11 @@ select option:disabled{color:#999!important;font-style:italic;}
 
       <div class="grid-3">
         <div class="form-group">
-          <label>Qty Sold</label>
+          <label>Qty Sold <span class="sub">— units to pack</span></label>
           <input type="number" step="1" min="1" name="saleQty" id="saleQty" value="1" required>
         </div>
         <div class="form-group">
-          <label>Retail Price (Rs)</label>
+          <label>Retail Price (Rs) <span class="sub">— order total</span></label>
           <input type="number" step="any" name="retailPrice" placeholder="0" required>
         </div>
         <div class="form-group">
@@ -706,6 +706,11 @@ select option:disabled{color:#999!important;font-style:italic;}
           </div>
         </div>
       </div>
+
+      <!-- Multi-unit banner. The product name carries a pack spec ("…, 1 Qty")
+           that says nothing about how many units this buyer bought, so the
+           count is stated here in words the packer cannot misread. -->
+      <div id="qtyNotice" style="display:none;margin-top:2px;background:rgba(255,152,0,.14);border:1px solid rgba(255,152,0,.5);border-left:4px solid #ff9800;border-radius:6px;padding:9px 12px;color:#ff9800;font-weight:800;font-size:13.5px;line-height:1.45;"></div>
 
       <div class="section-label">Dimensions (Product)</div>
       <div class="grid-4">
@@ -805,7 +810,7 @@ select option:disabled{color:#999!important;font-style:italic;}
 // Scheme:
 //   • Small patch  (bug fix / UI tweak): bump the part after the dot →  v10.9 → v10.10 → v10.11 …
 //   • Big feature  (new module / major change): bump the whole number, drop the dot →  v10.x → v11 → v12 …
-var APP_VERSION = "v11.2"; // ← change here on every release
+var APP_VERSION = "v12.0"; // ← change here on every release
 // ─────────────────────────────────────────────
 (function(){
     var chip = document.getElementById('verChip');
@@ -932,7 +937,8 @@ var SHEET_HEADERS = [
     "Platform","Courier Service","Product Name","Retail Price (Rs)","Payment Type",
     "Prod L (cm)","Prod W (cm)","Prod H (cm)","Prod Wt (gm)",
     "Pkg L (cm)","Pkg W (cm)","Pkg H (cm)","Pkg Wt (gm)",
-    "B.Wt (gms)","Shipment Type","Name of Buyer","Location / City","State / UT","Order ID","Invoice Number"
+    "B.Wt (gms)","Shipment Type","Name of Buyer","Location / City","State / UT","Order ID","Invoice Number",
+    "Qty Sold"   // units packed. Trailing column — the backend locates it by name.
 ];
 
 var MONTH_NAMES = ["January","February","March","April","May","June",
@@ -1622,6 +1628,44 @@ function _opIsFBA(o){
   return /^[A-Z]{2,4}\d-\d+$/.test(String((o && o.invoiceNo) || '').trim().toUpperCase());
 }
 
+/* ── ORDERED QUANTITY — one rule, used by every screen ─────────────────────
+   The marketplace record carries the number of UNITS bought (Tracker column
+   "Qty"). The product NAME separately ends in a pack spec — "…500 gm,
+   15x13x7 cm, 1 Qty" — which describes ONE unit. Those two are unrelated, and
+   reading the title instead of the field is how a 2-unit order got packed as
+   one. Everything below (pending card, form, saved row, history) takes the
+   count from here and nowhere else. Unknown/blank falls back to 1 but is shown
+   as an explicit "× 1", never left silent. */
+function _opOrderQty(o){
+  var n=parseInt(String((o&&o.qty)||'').replace(/[^0-9]/g,''),10);
+  return (!isNaN(n) && n>0) ? n : 1;
+}
+/* Banner + field highlight for a multi-unit order. Called on prefill, on every
+   keystroke in Qty Sold, and on reset, so the form can never sit quietly on a
+   number the packer has not seen. */
+function _opShowQtyNotice(q){
+  var box=document.getElementById('qtyNotice'), fld=document.getElementById('saleQty');
+  if(!box) return;
+  var n=parseInt(q,10); if(isNaN(n)||n<1) n=1;
+  if(n>1){
+    var prod=(document.getElementById('productInput')||{}).value||'this item';
+    box.innerHTML='⚠️ PACK '+n+' UNITS — the buyer ordered <u>'+n+'</u> of “'+_trkEsc(prod)+'”.'
+      +'<br><span style="font-weight:600;opacity:.9;">The “1 Qty” inside the product name is the pack size of ONE unit. Put '+n+' in the box.</span>';
+    box.style.display='block';
+    if(fld){ fld.style.borderColor='#ff9800'; fld.style.background='rgba(255,152,0,.10)'; fld.style.fontWeight='800'; }
+  } else {
+    box.style.display='none'; box.innerHTML='';
+    if(fld){ fld.style.borderColor=''; fld.style.background=''; fld.style.fontWeight=''; }
+  }
+}
+function _opUnitPrice(amount, qty){
+  var a=parseFloat(String(amount||'').replace(/[^0-9.]/g,''));
+  if(!isFinite(a) || !qty || qty<2) return '';
+  var u=a/qty;
+  return (Math.round(u*100)/100).toString();
+}
+var _opSrcQty  = null;     // qty the Tracker gave for the row being processed
+
 var _trkOrders = [];       // full pending list from the backend (all dates)
 var _trkView   = [];       // subset currently shown (after the scope filter)
 var _trkScope  = 'today';  // 'today' | '7d' | 'all'
@@ -1685,11 +1729,30 @@ function _renderTrackerOrders(){
   var html='';
   for(var i=0;i<_trkView.length;i++){
     var o=_trkView[i];
-    var line2=[o.platform, o.products, (o.amount?('₹'+o.amount):''), o.payType].filter(Boolean).join(' · ');
+    var q=_opOrderQty(o);                                  // units the buyer actually ordered
+    var multi=q>1;
+    var line2=[o.platform, o.products].filter(Boolean).join(' · ');
+    var unit=_opUnitPrice(o.amount, q);
+    var money=o.amount ? ('₹'+o.amount+(multi&&unit?(' total · ₹'+unit+' each'):'')) : '';
+    var meta=[money, o.payType].filter(Boolean).join(' · ');
+    // The ordered quantity is ALWAYS its own chip. It must never be read out of
+    // the product title — the ", 1 Qty" there is the PACK SIZE of one unit, not
+    // how many units to pack, and staff have shipped 1 when 2 were sold.
+    var qtyChip='<span style="display:inline-block;padding:2px 9px;border-radius:6px;font-weight:800;font-size:12px;letter-spacing:.4px;'
+      + (multi ? 'background:#ff9800;color:#1a1000;' : 'background:rgba(0,197,255,.18);color:#00c5ff;')
+      + '">× '+q+'</span>';
+    var packWarn = multi
+      ? '<div style="margin-top:6px;background:rgba(255,152,0,.14);border-left:3px solid #ff9800;border-radius:4px;padding:5px 8px;font-size:11.5px;font-weight:800;color:#ff9800;">⚠️ PACK '+q+' UNITS — this buyer ordered '+q+', not 1</div>'
+      : '';
     var ownerBtn = _opOwner ? ('<button class="op-mark-done" data-idx="'+i+'" style="margin-top:8px;background:transparent;border:1px solid #ff9800;color:#ff9800;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer;">✔ Mark already processed</button>') : '';
-    html += '<div class="trk-row" data-idx="'+i+'" style="border:1px solid rgba(0,197,255,.25);border-radius:8px;padding:10px 12px;cursor:pointer;background:rgba(0,197,255,.05);">'
-      + '<div style="font-weight:700;font-size:13px;color:#00c5ff;">'+_trkEsc(o.buyerName||'(no name)')+'</div>'
+    html += '<div class="trk-row" data-idx="'+i+'" style="border:1px solid '+(multi?'rgba(255,152,0,.55)':'rgba(0,197,255,.25)')+';border-left:'+(multi?'4px solid #ff9800':'1px solid rgba(0,197,255,.25)')+';border-radius:8px;padding:10px 12px;cursor:pointer;background:'+(multi?'rgba(255,152,0,.06)':'rgba(0,197,255,.05)')+';">'
+      + '<div style="display:flex;align-items:center;gap:8px;justify-content:space-between;">'
+        + '<div style="font-weight:700;font-size:13px;color:#00c5ff;">'+_trkEsc(o.buyerName||'(no name)')+'</div>'
+        + qtyChip
+      + '</div>'
       + '<div style="font-size:11.5px;opacity:.85;margin-top:2px;">'+_trkEsc(line2)+'</div>'
+      + (meta?('<div style="font-size:11.5px;opacity:.85;margin-top:2px;">'+_trkEsc(meta)+'</div>'):'')
+      + packWarn
       + '<div style="font-size:10.5px;opacity:.6;margin-top:3px;font-family:monospace;">'+_trkEsc(o.orderId||'no order id')+(o.invoiceNo?(' · '+_trkEsc(o.invoiceNo)):'')+'</div>'
       + ownerBtn
       + '</div>';
@@ -1834,10 +1897,12 @@ function prefillFromTracker(o){
   if(_selectByText(document.getElementById('platformSelect'), o.platform)) n++;
   var iso=_trkParseDate(o.shipDate); if(iso && _setVal('#pickupDate', iso, true)) n++;
   if(_setVal('#productInput', o.products)) n++;
-  // Qty comes straight off the marketplace record, so a 2-piece order takes 2
-  // off the IBI Fashion Jewellery register rather than 1.
-  var tq=parseInt(String(o.qty||'').replace(/[^0-9]/g,''),10);
-  if(!isNaN(tq) && tq>0 && _setVal('#saleQty', tq)) n++;
+  // Qty comes straight off the marketplace record, so a 2-piece order is packed
+  // as 2 and takes 2 off the IBI Fashion Jewellery register rather than 1.
+  var tq=_opOrderQty(o);
+  _opSrcQty = tq;
+  if(_setVal('#saleQty', tq, true)) n++;
+  _opShowQtyNotice(tq);
   if(_setVal('input[name="retailPrice"]', o.amount)) n++;
   if(_selectByText(document.querySelector('select[name="paymentType"]'), o.payType)) n++;
   if(_setVal('input[name="buyerName"]', o.buyerName)) n++;
@@ -1847,7 +1912,10 @@ function prefillFromTracker(o){
   if(o.address) hint+=o.address;
   if(o.pincode) hint+=(hint?' — ':'')+'PIN '+o.pincode;
   if(o.buyerPhone) hint+=(hint?' · ':'')+'☎ '+o.buyerPhone;
-  _trkSetStatus('Pre-filled '+n+' field'+(n===1?'':'s')+'. <strong>Verify Order&nbsp;ID, Invoice &amp; City/State</strong>, then complete the packing details.'+(hint?('<br><span style="opacity:.8;">Ship-to: '+_trkEsc(hint)+'</span>'):''),'ok');
+  var qtyLine = tq>1
+    ? '<br><span style="color:#ff9800;font-weight:800;">⚠️ PACK '+tq+' UNITS of this item — the buyer ordered '+tq+'.</span>'
+    : '';
+  _trkSetStatus('Pre-filled '+n+' field'+(n===1?'':'s')+'. <strong>Verify Order&nbsp;ID, Invoice &amp; City/State</strong>, then complete the packing details.'+qtyLine+(hint?('<br><span style="opacity:.8;">Ship-to: '+_trkEsc(hint)+'</span>'):''),'ok');
   var el=document.getElementById('orderIdInput'); if(el&&el.scrollIntoView) el.scrollIntoView({behavior:'smooth',block:'center'});
 }
 function _trkDropProcessed(orderId, inv){
@@ -1877,6 +1945,10 @@ function _selectByText(el, text){
   }
   return false;
 }
+(function(){
+  var sq=document.getElementById('saleQty');
+  if(sq) sq.addEventListener('input', function(){ _opShowQtyNotice(this.value); });
+})();
 document.getElementById('trkLoadBtn').addEventListener('click', loadTrackerOrders);
 /* Auto-load the pending list on page open — staff no longer need to tap the
    button. The button stays as a manual refresh. Runs after first paint. */
@@ -1905,6 +1977,21 @@ document.getElementById("orderForm").addEventListener("submit", function(e){
     if(!document.getElementById('shipmentTo').value){
         alert("Please select State / UT — Shipment Type is auto-determined from it.");
         document.getElementById('stateDropdown').focus(); return;
+    }
+    // Quantity guard. The count the marketplace sent is the truth; if what is
+    // about to be saved differs, say so in full before it becomes a packing
+    // slip. A silent 2 → 1 here means the buyer gets half the order.
+    var _sqEl=document.getElementById('saleQty');
+    var _qtyNow=parseInt(_sqEl?_sqEl.value:'',10);
+    if(isNaN(_qtyNow)||_qtyNow<1){
+        alert("Enter Qty Sold — how many units of this item go into the parcel.");
+        if(_sqEl) _sqEl.focus(); return;
+    }
+    if(_opSrcQty && _qtyNow!==_opSrcQty){
+        if(!confirm("QUANTITY MISMATCH\n\nThe marketplace order says "+_opSrcQty+" unit"+(_opSrcQty===1?'':'s')+".\nYou are about to save "+_qtyNow+".\n\nPacking the wrong count sends the buyer a short shipment.\n\nSave "+_qtyNow+" anyway?")){
+            if(_sqEl){ _sqEl.focus(); _sqEl.select && _sqEl.select(); }
+            return;
+        }
     }
     document.getElementById("loader").style.display="flex";
     document.getElementById("submitBtn").disabled=true;
@@ -1935,12 +2022,13 @@ document.getElementById("orderForm").addEventListener("submit", function(e){
         document.getElementById("submitBtn").classList.remove("editing");
         document.getElementById("submitBtn").textContent="Save & Generate Serial No.";
         if(result.status==="success"){
-            alert("SUCCESS!\n\nSaved to Google Sheet.\nSerial Number: "+result.serialNumber);
+            alert("SUCCESS!\n\nSaved to Google Sheet.\nSerial Number: "+result.serialNumber
+                  +"\n\nPACK "+_qtyNow+" UNIT"+(_qtyNow===1?'':'S')+" of:\n"+(data.productName||''));
             addToHistory({
                 serial:result.serialNumber, entryDT:entryDateTime,
                 orderId:data.orderId, invoiceNumber:data.invoiceNumber, platform:data.platform, courier:data.courier,
                 pickupDate:data.pickupDate, pickupDay:data.pickupDay, pickupTime:data.pickupTime,
-                product:data.productName, retailPrice:data.retailPrice, paymentType:data.paymentType,
+                product:data.productName, qty:data.saleQty, retailPrice:data.retailPrice, paymentType:data.paymentType,
                 pLen:data.pLen, pWid:data.pWid, pHei:data.pHei, pWgt:data.pWgt,
                 pkgLen:data.pkgLen, pkgWid:data.pkgWid, pkgHei:data.pkgHei, pkgWgt:data.pkgWgt,
                 bWgt:data.bWgt, shipmentTo:data.shipmentTo,
@@ -1964,6 +2052,7 @@ document.getElementById("orderForm").addEventListener("submit", function(e){
 function resetForm(){
     document.getElementById("orderForm").reset();
     var sq=document.getElementById('saleQty'); if(sq) sq.value=1;
+    _opSrcQty=null; _opShowQtyNotice(1);
     document.getElementById('pickupDate').valueAsDate=new Date();
     document.getElementById('pickupDate').dispatchEvent(new Event('change'));
     var cs=document.getElementById('courierSelect');
@@ -2023,6 +2112,11 @@ function renderHistory(history){
                 +'<div class="hist-row"><span class="hv strong">'+(item.courier||'')+'  ·  '+(item.pickupTime||'')+'</span></div>'
                 +'<div class="hd"></div>'
                 +'<div class="hist-row"><span class="hv strong">'+(item.product||'')+'</span></div>'
+                +(function(){
+                    var q=parseInt(item.qty,10); if(isNaN(q)||q<1) q=1;
+                    return '<div class="hist-row"><span class="hl">Qty Packed</span>'
+                      +'<span class="hv" style="font-weight:800;'+(q>1?'color:#ff9800;':'')+'">'+q+' unit'+(q===1?'':'s')+'</span></div>';
+                  })()
                 +row('Price', item.retailPrice?'Rs '+item.retailPrice+' ('+(item.paymentType||'')+')':'')
                 +'<div class="hd"></div>'
                 +dims('Product Dims', item.pLen, item.pWid, item.pHei, item.pWgt)

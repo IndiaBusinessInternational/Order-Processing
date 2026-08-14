@@ -13,8 +13,25 @@ function doPost(e) {
       return ContentService.createTextOutput(JSON.stringify(trk)).setMimeType(ContentService.MimeType.JSON);
     }
 
+    // ── ROUTE: verify the Owner PIN, issue a short-lived signed token ──────
+    // The PIN itself lives ONLY in Script Properties (Project Settings →
+    // Script Properties → OWNER_PIN). It is never sent back to the browser;
+    // a successful check returns an HMAC-signed token the client stores for
+    // the session and presents on privileged actions below.
+    if (data && data.action === 'verifyOwnerPin') {
+      var vp;
+      try { vp = handleVerifyOwnerPin_(data); }
+      catch (ex) { vp = { ok:false, error: ex.toString() }; }
+      return ContentService.createTextOutput(JSON.stringify(vp)).setMimeType(ContentService.MimeType.JSON);
+    }
+
     // ── ROUTE: dismiss Tracker orders (hide them from the pending list) ─────
+    // OWNER-ONLY: requires a valid token from verifyOwnerPin. Without it the
+    // endpoint refuses, so knowing the /exec URL alone is not enough.
     if (data && data.action === 'dismissTrackerOrders') {
+      if (!_opCheckOwnerToken_(data && data.token)) {
+        return ContentService.createTextOutput(JSON.stringify({ ok:false, error:'unauthorized' })).setMimeType(ContentService.MimeType.JSON);
+      }
       var dsm;
       try { dsm = handleDismissTrackerOrders_(data); }
       catch (ex) { dsm = { ok:false, error: ex.toString() }; }
@@ -83,6 +100,19 @@ function doPost(e) {
            .setBackground("#1e293b").setFontColor("#ffffff").setFontWeight("bold");
     }
 
+    // Ensure the "Qty Sold" column exists. Until now the units-sold figure was
+    // collected on the form, used to deduct jewellery stock, and then thrown
+    // away — so a 2-unit order was saved as a row indistinguishable from a
+    // 1-unit one, and every downstream reader (ERP, audits, reprints) saw one
+    // piece. It is a real column now. "Retail Price (Rs)" beside it stays the
+    // ORDER TOTAL, not a per-unit price — do not multiply the two.
+    var hdrRow3 = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    var hasQty = hdrRow3.some(function (h) { return String(h).trim() === "Qty Sold"; });
+    if (!hasQty) {
+      sheet.getRange(1, sheet.getLastColumn() + 1).setValue("Qty Sold")
+           .setBackground("#1e293b").setFontColor("#ffffff").setFontWeight("bold");
+    }
+
     // SERIAL NUMBER: starts from 604042, auto-increments
     var SERIAL_START = parseInt(data.serialStart) || 604042;
     var lastRow = sheet.getLastRow();
@@ -138,6 +168,17 @@ function doPost(e) {
     for (var ic = 0; ic < hdr2.length; ic++) {
       if (String(hdr2[ic]).trim() === "Invoice Number") {
         sheet.getRange(newRowNum, ic + 1).setNumberFormat("@").setValue(data.invoiceNumber || "");
+        break;
+      }
+    }
+
+    // Units packed. Written as a NUMBER so it can be summed, and never left
+    // blank — a blank would read as "unknown" and invite the old guess of 1.
+    var qtySold = parseInt(data.saleQty, 10);
+    if (isNaN(qtySold) || qtySold < 1) qtySold = 1;
+    for (var qc = 0; qc < hdr2.length; qc++) {
+      if (String(hdr2[qc]).trim() === "Qty Sold") {
+        sheet.getRange(newRowNum, qc + 1).setValue(qtySold);
         break;
       }
     }
@@ -351,4 +392,68 @@ function handleDismissTrackerOrders_(data) {
     sh.getRange(sh.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
   }
   return { ok: true, dismissed: added };
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   OWNER AUTHENTICATION  (PIN check moved server-side)
+   ----------------------------------------------------------------------------
+   The Owner PIN is stored in Script Properties (OWNER_PIN) — never in this
+   source file and never sent to the browser. verifyOwnerPin compares the
+   submitted PIN, and on a match returns a stateless token: "<exp>.<sig>",
+   where sig = HMAC-SHA256(OWNER_TOKEN_SECRET, exp). Privileged actions
+   recompute the signature and check expiry — no server-side session storage.
+
+   ONE-TIME SETUP (do this once in the Apps Script editor):
+     1. Run  opSetupOwnerAuth  → generates OWNER_TOKEN_SECRET automatically.
+     2. Project Settings → Script Properties → add  OWNER_PIN  = your PIN.
+        (Use a NEW pin, not the old 8899 that leaked in the screenshot.)
+     3. Deploy → Manage deployments → Edit → New version.
+   ──────────────────────────────────────────────────────────────────────── */
+var OP_TOKEN_TTL_MS = 12 * 60 * 60 * 1000;   // token valid for 12 hours
+
+function opSetupOwnerAuth() {
+  var props = PropertiesService.getScriptProperties();
+  if (!props.getProperty('OWNER_TOKEN_SECRET')) {
+    props.setProperty('OWNER_TOKEN_SECRET', Utilities.getUuid() + Utilities.getUuid());
+  }
+  Logger.log('OWNER_TOKEN_SECRET: set ✓');
+  Logger.log('OWNER_PIN: ' + (props.getProperty('OWNER_PIN')
+    ? 'set ✓'
+    : 'NOT SET — add it under Project Settings → Script Properties'));
+}
+
+function handleVerifyOwnerPin_(data) {
+  var props = PropertiesService.getScriptProperties();
+  var realPin = props.getProperty('OWNER_PIN');
+  if (!realPin) return { ok:false, error:'OWNER_PIN not configured' };
+  var given = (data && data.pin != null) ? String(data.pin) : '';
+  if (given !== String(realPin)) return { ok:false, error:'incorrect' };
+  return { ok:true, token: _opMakeOwnerToken_() };
+}
+
+function _opSign_(msg) {
+  var secret = PropertiesService.getScriptProperties().getProperty('OWNER_TOKEN_SECRET') || '';
+  var raw = Utilities.computeHmacSha256Signature(String(msg), secret);
+  return Utilities.base64EncodeWebSafe(raw);
+}
+
+function _opMakeOwnerToken_() {
+  var exp = (new Date()).getTime() + OP_TOKEN_TTL_MS;
+  return exp + '.' + _opSign_(String(exp));
+}
+
+function _opCheckOwnerToken_(token) {
+  if (!token || typeof token !== 'string') return false;
+  var dot = token.indexOf('.');
+  if (dot < 1) return false;
+  var exp = token.substring(0, dot);
+  var sig = token.substring(dot + 1);
+  if (!/^\d+$/.test(exp)) return false;
+  if ((new Date()).getTime() > parseInt(exp, 10)) return false;   // expired
+  var expected = _opSign_(exp);
+  if (sig.length !== expected.length) return false;
+  // constant-ish comparison
+  var diff = 0;
+  for (var i = 0; i < expected.length; i++) diff |= (sig.charCodeAt(i) ^ expected.charCodeAt(i));
+  return diff === 0;
 }
