@@ -287,9 +287,11 @@ function handleGetTrackerOrders_(data) {
   //    every IBI app. Reading the sheet in-process needs no new permission
   //    (the manifest already carries the full spreadsheets scope) and returns
   //    only the fields this form uses. The web app stays as the fallback.
-  var pkgs = null;
-  try { pkgs = _opReadTrackerSheet_(); } catch (e1) { pkgs = null; }
-  if (!pkgs) pkgs = _opReadTrackerHttp_();
+  var pkgs = null, src = 'sheet', srcNote = '', t0 = (new Date()).getTime();
+  try { pkgs = _opReadTrackerSheet_(); }
+  catch (e1) { pkgs = null; srcNote = String(e1); }
+  if (!pkgs) { src = 'http'; pkgs = _opReadTrackerHttp_(); }
+  var readMs = (new Date()).getTime() - t0;
 
   // 2) Order IDs we have already processed (present in our Orders sheet).
   //    Only the Order ID column is read — pulling all 25 columns × 1,442 rows
@@ -317,7 +319,9 @@ function handleGetTrackerOrders_(data) {
 
   // 3) Keep only unprocessed, non-dismissed orders, de-duped, newest first
   //    (loadPackages is already newest-first).
-  var out = { ok: true, orders: [], total: pkgs.length };
+  // Which path served this, and what it cost. Without it the only way to tell a
+  // working direct read from a silent fallback is to guess at a stopwatch.
+  var out = { ok: true, orders: [], total: pkgs.length, src: src, readMs: readMs, srcNote: srcNote };
   var seen = {};
   for (var i = 0; i < pkgs.length; i++) {
     var p   = pkgs[i];
@@ -363,7 +367,7 @@ function handleGetTrackerOrders_(data) {
    silently handing back nonsense. */
 function _opReadTrackerSheet_() {
   var sh = SpreadsheetApp.openById(OP_TRACKER_SHEET_ID).getSheetByName(OP_TRACKER_TAB);
-  if (!sh) return null;
+  if (!sh) throw new Error('tab "' + OP_TRACKER_TAB + '" not found');
   var lastRow = sh.getLastRow(), lastCol = sh.getLastColumn();
   if (lastRow < 2) return [];
 
@@ -379,11 +383,24 @@ function _opReadTrackerSheet_() {
       iProd  = col('Products / SKU'),   iQty = col('Qty'),
       iAmt   = col('Amount (₹)'),       iPay = col('Payment Type'),
       iShip  = col('Ship Date');
-  if (iSaved < 0 || iOrder < 0 || iAwb < 0 || iQty < 0) return null;   // layout changed
+  // Layout changed — fall back, but say WHICH names were expected and what the
+  // sheet actually has, so a silent fallback is never a mystery.
+  if (iSaved < 0 || iOrder < 0 || iAwb < 0 || iQty < 0) {
+    throw new Error('header mismatch — sheet row 1 = [' + head.join(' | ') + ']');
+  }
 
-  var rng  = sh.getRange(2, 1, lastRow - 1, lastCol);
-  var vals = rng.getValues();
-  var disp = rng.getDisplayValues();          // literal text, for the date fix below
+  // Read only as far right as the last column actually wanted (the Tracker's
+  // Status / Tracking URL / Last Tracked tail is of no use here), and pull
+  // DISPLAY text for the one column that needs it. Fetching display values for
+  // the whole sheet doubled the cost of the read to serve a single date column.
+  var need = [iSaved, iPlat, iCour, iOrder, iAwb, iInv, iOdate, iBuyer, iPhone,
+              iAddr, iPin, iProd, iQty, iAmt, iPay, iShip];
+  var wide = 1;
+  for (var w = 0; w < need.length; w++) if (need[w] + 1 > wide) wide = need[w] + 1;
+
+  var nRows = lastRow - 1;
+  var vals  = sh.getRange(2, 1, nRows, wide).getValues();
+  var dispSaved = sh.getRange(2, iSaved + 1, nRows, 1).getDisplayValues();
   function g(row, i) { return i < 0 ? '' : row[i]; }
 
   var out = [];
@@ -391,7 +408,7 @@ function _opReadTrackerSheet_() {
     var r = vals[i];
     if (!r[iAwb] && !r[iOrder]) continue;
     out.push({
-      savedOn:         _opSavedOn_(r[iSaved], disp[i][iSaved]),
+      savedOn:         _opSavedOn_(r[iSaved], dispSaved[i][0]),
       platform:        g(r, iPlat),  courier:    g(r, iCour),
       orderId:         g(r, iOrder), awb:        g(r, iAwb),
       invoiceNo:       g(r, iInv),   orderDate:  g(r, iOdate),
