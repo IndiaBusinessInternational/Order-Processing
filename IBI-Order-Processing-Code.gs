@@ -1,3 +1,12 @@
+/* IBI Package Tracker — its spreadsheet (read directly, fast path) and its web
+   app (fallback only). Same Google account owns both, and this project's
+   manifest already holds the full spreadsheets scope, so no re-authorisation. */
+var OP_TRACKER_SHEET_ID   = '1VjK5oA6mCZVXZ2AhfZYtb0kVAkB549bSUB4iQ4eW7f0';
+var OP_TRACKER_TAB        = 'Package Tracker';
+var OP_TRACKER_URL        = 'https://script.google.com/macros/s/AKfycbxLPmBJmkgFbO-5Ew5uObdVGwMNBXQ8oJCmssIue_Av_G2iaRAaArGzbRNaF7gMzFYsEg/exec';
+var OP_PENDING_CACHE_KEY  = 'op_pending_v1';
+var OP_PENDING_CACHE_SEC  = 60;
+
 function doPost(e) {
   try {
     var data  = JSON.parse(e.postData.contents);
@@ -8,7 +17,7 @@ function doPost(e) {
     // processed here, so the form lists only what's still pending.
     if (data && data.action === 'getTrackerOrders') {
       var trk;
-      try { trk = handleGetTrackerOrders_(); }
+      try { trk = handleGetTrackerOrders_(data); }
       catch (ex) { trk = { ok:false, error: ex.toString(), orders:[] }; }
       return ContentService.createTextOutput(JSON.stringify(trk)).setMimeType(ContentService.MimeType.JSON);
     }
@@ -33,6 +42,7 @@ function doPost(e) {
         return ContentService.createTextOutput(JSON.stringify({ ok:false, error:'unauthorized' })).setMimeType(ContentService.MimeType.JSON);
       }
       var dsm;
+      try { CacheService.getScriptCache().remove(OP_PENDING_CACHE_KEY); } catch (eC3) {}
       try { dsm = handleDismissTrackerOrders_(data); }
       catch (ex) { dsm = { ok:false, error: ex.toString() }; }
       return ContentService.createTextOutput(JSON.stringify(dsm)).setMimeType(ContentService.MimeType.JSON);
@@ -183,6 +193,10 @@ function doPost(e) {
       }
     }
 
+    // This order is no longer pending — drop the cached list so another device
+    // opening the form does not offer it again for up to a minute.
+    try { CacheService.getScriptCache().remove(OP_PENDING_CACHE_KEY); } catch (eC2) {}
+
     return ContentService
       .createTextOutput(JSON.stringify({ status: "success", serialNumber: serialNumber }))
       .setMimeType(ContentService.MimeType.JSON);
@@ -256,33 +270,42 @@ function _send_(payload, cb) {
    removes any Order ID already present in our own "Orders" sheet. Returns the
    still-pending orders (newest first) for the form to list and pre-fill.
    ──────────────────────────────────────────────────────────────────────── */
-function handleGetTrackerOrders_() {
-  // Live /exec URL of the IBI Package Tracker web app.
-  var TRACKER_URL = 'https://script.google.com/macros/s/AKfycbxLPmBJmkgFbO-5Ew5uObdVGwMNBXQ8oJCmssIue_Av_G2iaRAaArGzbRNaF7gMzFYsEg/exec';
+function handleGetTrackerOrders_(data) {
+  // A 60-second cache. Staff open this page all day and several devices hit it
+  // at once; without it every open paid the full build again.
+  var cache = CacheService.getScriptCache();
+  if (!(data && data.fresh)) {
+    var hit = cache.get(OP_PENDING_CACHE_KEY);
+    if (hit) { try { var c = JSON.parse(hit); c.cached = true; return c; } catch (eC) {} }
+  }
 
-  // 1) Pull all packages from the Package Tracker.
-  var pkgs = [];
-  var resp = UrlFetchApp.fetch(TRACKER_URL, {
-    method: 'post',
-    payload: { action: 'loadPackages' },
-    muteHttpExceptions: true,
-    followRedirects: true
-  });
-  var json = JSON.parse(resp.getContentText());
-  if (json && json.status === 'success' && Array.isArray(json.data)) pkgs = json.data;
+  // 1) Packages from the Package Tracker — read STRAIGHT off its spreadsheet.
+  //    The old path called the Tracker's own web app for `loadPackages`, which
+  //    serialises all 1,518 rows × 23 fields (~1.5 MB) and took ~6 s, so that
+  //    the form could keep about three of them. It also burned a second Apps
+  //    Script execution per page open, and this account's quota is shared by
+  //    every IBI app. Reading the sheet in-process needs no new permission
+  //    (the manifest already carries the full spreadsheets scope) and returns
+  //    only the fields this form uses. The web app stays as the fallback.
+  var pkgs = null;
+  try { pkgs = _opReadTrackerSheet_(); } catch (e1) { pkgs = null; }
+  if (!pkgs) pkgs = _opReadTrackerHttp_();
 
   // 2) Order IDs we have already processed (present in our Orders sheet).
+  //    Only the Order ID column is read — pulling all 25 columns × 1,442 rows
+  //    to look at one of them was pure waste.
   var processed = {};
   try {
     var ss    = SpreadsheetApp.openById("1Y1sE5fPODjevfYJXhTeJzi0djWGo5pdl2xy-obxhO0Q");
     var sheet = ss.getSheetByName("Orders") || ss.getSheets()[0];
-    var values = sheet.getDataRange().getValues();
-    if (values.length) {
-      var hdr = values[0], oc = -1;
+    var lastR = sheet.getLastRow();
+    if (lastR > 1) {
+      var hdr = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0], oc = -1;
       for (var c = 0; c < hdr.length; c++) { if (String(hdr[c]).trim() === "Order ID") { oc = c; break; } }
       if (oc >= 0) {
-        for (var r = 1; r < values.length; r++) {
-          var id = String(values[r][oc] || '').trim();
+        var ids = sheet.getRange(2, oc + 1, lastR - 1, 1).getValues();
+        for (var r = 0; r < ids.length; r++) {
+          var id = String(ids[r][0] || '').trim();
           if (id) processed[id] = true;
         }
       }
@@ -324,7 +347,95 @@ function handleGetTrackerOrders_() {
       savedOn:    String(p.savedOn    || '')
     });
   }
+
+  // CacheService rejects values over 100 KB — skip the cache rather than throw.
+  try {
+    var payload = JSON.stringify(out);
+    if (payload.length < 95000) cache.put(OP_PENDING_CACHE_KEY, payload, OP_PENDING_CACHE_SEC);
+  } catch (e3) {}
   return out;
+}
+
+/* ── Tracker sheet, read directly ──────────────────────────────────────────
+   Columns are located BY HEADER NAME, never by fixed position: if the Tracker
+   ever inserts a column this keeps working, and if the headers it needs are
+   missing it returns null so the caller falls back to the web app instead of
+   silently handing back nonsense. */
+function _opReadTrackerSheet_() {
+  var sh = SpreadsheetApp.openById(OP_TRACKER_SHEET_ID).getSheetByName(OP_TRACKER_TAB);
+  if (!sh) return null;
+  var lastRow = sh.getLastRow(), lastCol = sh.getLastColumn();
+  if (lastRow < 2) return [];
+
+  var head = sh.getRange(1, 1, 1, lastCol).getValues()[0]
+               .map(function (h) { return String(h).trim().toLowerCase(); });
+  function col(name) { return head.indexOf(String(name).toLowerCase()); }
+
+  var iSaved = col('Saved On'),   iPlat  = col('Platform'),  iCour = col('Courier'),
+      iOrder = col('Order ID'),   iAwb   = col('AWB / Tracking No'),
+      iInv   = col('Invoice No'), iOdate = col('Order Date'),
+      iBuyer = col('Buyer Name'), iPhone = col('Buyer Phone'),
+      iAddr  = col('Shipping Address'), iPin = col('Pincode'),
+      iProd  = col('Products / SKU'),   iQty = col('Qty'),
+      iAmt   = col('Amount (₹)'),       iPay = col('Payment Type'),
+      iShip  = col('Ship Date');
+  if (iSaved < 0 || iOrder < 0 || iAwb < 0 || iQty < 0) return null;   // layout changed
+
+  var rng  = sh.getRange(2, 1, lastRow - 1, lastCol);
+  var vals = rng.getValues();
+  var disp = rng.getDisplayValues();          // literal text, for the date fix below
+  function g(row, i) { return i < 0 ? '' : row[i]; }
+
+  var out = [];
+  for (var i = vals.length - 1; i >= 0; i--) {   // bottom row first = newest first
+    var r = vals[i];
+    if (!r[iAwb] && !r[iOrder]) continue;
+    out.push({
+      savedOn:         _opSavedOn_(r[iSaved], disp[i][iSaved]),
+      platform:        g(r, iPlat),  courier:    g(r, iCour),
+      orderId:         g(r, iOrder), awb:        g(r, iAwb),
+      invoiceNo:       g(r, iInv),   orderDate:  g(r, iOdate),
+      buyerName:       g(r, iBuyer), buyerPhone: g(r, iPhone),
+      shippingAddress: g(r, iAddr),  pincode:    g(r, iPin),
+      products:        g(r, iProd),  qty:        g(r, iQty),
+      amount:          g(r, iAmt),   payType:    g(r, iPay),
+      shipDate:        g(r, iShip)
+    });
+  }
+  return out;
+}
+
+/* Fallback: the Tracker's own web app, as before. */
+function _opReadTrackerHttp_() {
+  var resp = UrlFetchApp.fetch(OP_TRACKER_URL, {
+    method: 'post',
+    payload: { action: 'loadPackages' },
+    muteHttpExceptions: true,
+    followRedirects: true
+  });
+  var json = JSON.parse(resp.getContentText());
+  return (json && json.status === 'success' && Array.isArray(json.data)) ? json.data : [];
+}
+
+/* "Saved On", day-first — ported from the Tracker's savedOnOut_.
+   ⚠ The cell comes back with DAY AND MONTH TRANSPOSED whenever the day is 12
+   or lower, so the displayed text is parsed day-first rather than trusting the
+   Date object. A bare spreadsheet serial (cells left on General format) is
+   converted too, otherwise those rows are invisible to every date filter. */
+function _opSavedOn_(raw, shown) {
+  var m = String(shown || '').trim()
+    .match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})(?:[ ,T]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+  if (m) {
+    function p2(v) { return ('0' + v).slice(-2); }
+    return m[3] + '-' + p2(m[2]) + '-' + p2(m[1]) + 'T' + p2(m[4] || '00') + ':' + p2(m[5] || '00') + ':' + p2(m[6] || '00');
+  }
+  if (raw instanceof Date && !isNaN(raw.getTime())) {
+    return Utilities.formatDate(raw, 'Asia/Kolkata', "yyyy-MM-dd'T'HH:mm:ss");
+  }
+  if (typeof raw === 'number' && isFinite(raw) && raw > 20000 && raw < 90000) {
+    return Utilities.formatDate(new Date(Math.round((raw - 25569) * 86400000)), 'UTC', "yyyy-MM-dd'T'HH:mm:ss");
+  }
+  return raw;
 }
 
 /* ════════════════════════════════════════════════════════════════════════

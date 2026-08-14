@@ -810,7 +810,7 @@ select option:disabled{color:#999!important;font-style:italic;}
 // Scheme:
 //   • Small patch  (bug fix / UI tweak): bump the part after the dot →  v10.9 → v10.10 → v10.11 …
 //   • Big feature  (new module / major change): bump the whole number, drop the dot →  v10.x → v11 → v12 …
-var APP_VERSION = "v12.0"; // ← change here on every release
+var APP_VERSION = "v12.1"; // ← change here on every release
 // ─────────────────────────────────────────────
 (function(){
     var chip = document.getElementById('verChip');
@@ -912,6 +912,7 @@ function markProcessedEarlier(o, btn){
     .then(function(res){
       if(res && res.ok){
         _trkOrders = _trkOrders.filter(function(x){ return x.key !== o.key; });
+        _trkCacheSave(_trkOrders);
         _renderTrackerOrders();
         _trkSetStatus('✓ Marked “'+_trkEsc(o.buyerName||o.orderId||o.key)+'” as already processed — removed from the pending list.','ok');
       } else if(res && res.error==='unauthorized'){
@@ -1695,25 +1696,64 @@ function _trkInScope(o){
   return true;
 }
 function _trkScopeLabel(){ return _trkScope==='today'?'today':(_trkScope==='7d'?'in the last 7 days':'pending'); }
-function loadTrackerOrders(){
+/* Last good list, kept on the device. The round trip crosses two Google
+   services and a 1,400-row sheet, so staff used to watch a spinner before any
+   work appeared. The saved list is painted at once and quietly replaced when
+   the live answer lands — the standard stale-while-revalidate behaviour. */
+var OP_LIST_KEY = 'ibi_op_pending_v1';
+function _trkCacheSave(orders){
+  try{ localStorage.setItem(OP_LIST_KEY, JSON.stringify({ at: Date.now(), orders: orders })); }catch(e){}
+}
+function _trkCacheLoad(){
+  try{
+    var c=JSON.parse(localStorage.getItem(OP_LIST_KEY)||'null');
+    if(!c || !c.orders || !c.orders.length) return null;
+    if(Date.now()-c.at > 43200000) return null;         // older than 12 h — don't trust it
+    return c;
+  }catch(e){ return null; }
+}
+function _trkAgeText(ms){
+  var s=Math.round(ms/1000);
+  if(s<90) return 'a moment ago';
+  var m=Math.round(s/60); if(m<60) return m+' min ago';
+  var h=Math.round(m/60); return h+' hour'+(h===1?'':'s')+' ago';
+}
+// When the live call fails but a saved list is on screen, say plainly that it
+// may be out of date — an old list shown as if it were current is worse than
+// no list, because a processed order can be packed twice.
+function _trkStaleNote(cached){
+  if(!cached || !_trkOrders.length) return '';
+  return ' <strong>The list below was saved on this device '+_trkAgeText(Date.now()-cached.at)+' and may be out of date</strong> — refresh before packing.';
+}
+function loadTrackerOrders(fresh){
   var btn = document.getElementById('trkLoadBtn');
-  _trkSetStatus('⏳ Fetching pending orders from the Package Tracker…','info');
+  // Paint the saved list first so there is something to work with immediately.
+  var cached=_trkCacheLoad();
+  if(cached && !_trkLoaded){
+    _trkOrders = cached.orders.filter(function(o){ return !_opIsFBA(o); });
+    var sr0=document.getElementById('trkScopeRow'); if(sr0) sr0.style.display = _trkOrders.length ? 'flex' : 'none';
+    _renderTrackerOrders();
+    _trkSetStatus('📋 Showing the list saved on this device ('+_trkAgeText(Date.now()-cached.at)+') — checking the Package Tracker for changes…','info');
+  } else {
+    _trkSetStatus('⏳ Fetching pending orders from the Package Tracker…','info');
+  }
   if(btn){ btn.disabled=true; btn.style.opacity='.6'; }
   fetch(SCRIPT_URL, { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
-    body: JSON.stringify({ action:'getTrackerOrders' }) })
+    body: JSON.stringify({ action:'getTrackerOrders', fresh: fresh===true }) })
     .then(function(r){ return r.json(); })
     .then(function(res){
       if(btn){ btn.disabled=false; btn.style.opacity='1'; }
       if(res && res.ok){
+        _trkCacheSave(res.orders || []);
         _trkOrders = (res.orders || []).filter(function(o){ return !_opIsFBA(o); });
         _trkLoaded = true;
         var sr=document.getElementById('trkScopeRow'); if(sr) sr.style.display = _trkOrders.length ? 'flex' : 'none';
         _renderTrackerOrders();
       } else {
-        _trkSetStatus('⚠️ '+((res&&res.error)||'Could not load orders from the Tracker')+'. You can still enter orders manually below (✍️ Enter manually).','err');
+        _trkSetStatus('⚠️ '+((res&&res.error)||'Could not load orders from the Tracker')+'.'+_trkStaleNote(cached)+' You can still enter orders manually below (✍️ Enter manually).','err');
       }
     })
-    .catch(function(){ if(btn){ btn.disabled=false; btn.style.opacity='1'; } _trkSetStatus('Network error while loading orders — you can still enter orders manually below (✍️ Enter manually).','err'); });
+    .catch(function(){ if(btn){ btn.disabled=false; btn.style.opacity='1'; } _trkSetStatus('Network error while loading orders.'+_trkStaleNote(cached)+' You can still enter orders manually below (✍️ Enter manually).','err'); });
 }
 function _renderTrackerOrders(){
   var list = document.getElementById('trkList'); if(!list) return;
@@ -1926,6 +1966,7 @@ function _trkDropProcessed(orderId, inv){
     if(!oid && iv && String(o.invoiceNo||'').trim()===iv) return false;
     return true;
   });
+  _trkCacheSave(_trkOrders);   // keep the device copy in step, or a reopen re-offers it
   _renderTrackerOrders();
 }
 
@@ -1949,7 +1990,9 @@ function _selectByText(el, text){
   var sq=document.getElementById('saleQty');
   if(sq) sq.addEventListener('input', function(){ _opShowQtyNotice(this.value); });
 })();
-document.getElementById('trkLoadBtn').addEventListener('click', loadTrackerOrders);
+// Manual refresh means "ignore every cache and go and look" — the auto-load on
+// open is happy with the server's 60-second copy.
+document.getElementById('trkLoadBtn').addEventListener('click', function(){ loadTrackerOrders(true); });
 /* Auto-load the pending list on page open — staff no longer need to tap the
    button. The button stays as a manual refresh. Runs after first paint. */
 setTimeout(function(){ try { loadTrackerOrders(); } catch(e){} }, 200);
