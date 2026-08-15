@@ -1,0 +1,14 @@
+# ⚠ NEVER commit the Apps Script backend to this repo.
+#
+# GitHub Pages serves everything here at orders.indiabusinessinternational.online,
+# so a committed .gs is a public download — anyone could read the whole server
+# logic and every spreadsheet ID in it. Verified HTTP 200 before this change.
+#
+# The .gs stays a LOCAL MIRROR in the working folder and is deployed by pasting it
+# into the Apps Script editor. That workflow does not change.
+#
+# The same rule (and the same fix) already applies to IBI Stock Availability and
+# the IBI eCommerce Marketplace.
+IBI-Order-Processing-Code.gs
+IBI-Order-Processing-appsscript.json
+*.gs
