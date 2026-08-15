@@ -717,7 +717,9 @@ select option:disabled{color:#999!important;font-style:italic;}
            The marketplace writes the product name on an order, and that title
            differs from our own catalogue name on every platform, so this is
            confirmed once per listing and then remembered — see the backend note.
-           Never blocks the save: an order with no stock item still goes through. -->
+           An order with no stock item still goes through, but NOT silently: Save
+           asks first (15 Aug 2026 — six orders in a row saved unlinked and the
+           packer was never told, because this panel only whispered it). -->
       <div id="stockPanel" style="display:none;margin-top:10px;background:rgba(0,197,255,.08);border:1px solid rgba(0,197,255,.35);border-left:4px solid #00c5ff;border-radius:8px;padding:10px 12px;">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
           <div style="font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#00c5ff;">📦 Stock</div>
@@ -833,7 +835,7 @@ select option:disabled{color:#999!important;font-style:italic;}
 // Scheme:
 //   • Small patch  (bug fix / UI tweak): bump the part after the dot →  v10.9 → v10.10 → v10.11 …
 //   • Big feature  (new module / major change): bump the whole number, drop the dot →  v10.x → v11 → v12 …
-var APP_VERSION = "v13.0"; // ← change here on every release
+var APP_VERSION = "v13.1"; // ← change here on every release
 // ─────────────────────────────────────────────
 (function(){
     var chip = document.getElementById('verChip');
@@ -1379,11 +1381,20 @@ function stkLookup(force) {
   // an order to save — so if this page is ever newer than the pasted script, a POST
   // lookup would append a junk order row and burn a serial number on every keystroke.
   // A GET is answered harmlessly by any version of the backend.
-  fetch(SCRIPT_URL + '?action=stockSuggest&productName=' + encodeURIComponent(title))
+  // Apps Script on this account is shared with every other IBI tool and its
+  // wall-clock swings hard, so one 8-second try is not a lookup, it is a coin
+  // toss — and a lost toss used to mean an order saved off nobody's shelf.
+  // Same 25 s / 3 tries the rest of this app settled on.
+  stkTry(title, mySeq, 1);
+}
+
+function stkTry(title, mySeq, attempt) {
+  fetch(SCRIPT_URL + '?action=stockSuggest&productName=' + encodeURIComponent(title),
+        { signal: AbortSignal.timeout(25000) })
   .then(function (r) { return r.json(); })
   .then(function (res) {
     if (mySeq !== STK.seq) return;               // a newer product name is on screen
-    if (!res || !res.ok) { STK.choice = null; STK.source = 'error'; stkPaint(); return; }
+    if (!res || !res.ok) throw new Error('refused');
     STK.list   = res.list || [];
     STK.source = res.source || 'none';
     STK.choice = res.choice || null;
@@ -1392,7 +1403,15 @@ function stkLookup(force) {
   })
   .catch(function () {
     if (mySeq !== STK.seq) return;
-    STK.source = 'error'; STK.choice = null; stkPaint();
+    if (attempt < 3) {
+      var b = stkEl('stockBody');
+      if (b) b.innerHTML = '<span style="opacity:.75;">Warehouse is slow — trying again (' + (attempt + 1) + ' of 3)…</span>';
+      setTimeout(function () { stkTry(title, mySeq, attempt + 1); }, 1200 * attempt);
+      return;
+    }
+    STK.source = 'error'; STK.choice = null;
+    var hid = stkEl('stockId'); if (hid) hid.value = '';
+    stkPaint();
   });
 }
 
@@ -1419,19 +1438,37 @@ function stkPaint() {
           : 'Best match — check it is right; your choice is remembered for next time.') +
       '</div>';
   } else if (STK.source === 'error') {
-    body.innerHTML = '<span style="opacity:.8;">Could not reach the stock list. The order still saves — stock can be adjusted later.</span>';
+    body.innerHTML =
+      '<div style="font-weight:800;color:#ff5252;">Could not reach the stock list</div>' +
+      '<div style="margin-top:3px;font-size:12.5px;opacity:.85;">Nothing will be deducted until this is linked. ' +
+      '<button type="button" onclick="stkLookup(true)" style="margin-left:4px;padding:3px 10px;background:transparent;color:#00c5ff;border:1px solid rgba(0,197,255,.5);border-radius:6px;font-size:11.5px;font-weight:700;cursor:pointer;">Try again</button></div>';
   } else {
     body.innerHTML =
-      '<div style="font-weight:800;color:#ff9800;">Not linked to a stock item yet</div>' +
+      '<div style="font-weight:800;color:#ff9800;">⚠ Not linked — nothing will come off the shelf</div>' +
       '<div style="margin-top:3px;font-size:12.5px;opacity:.85;">' +
         (STK.source === 'unsure'
           ? 'Nothing here matches this listing closely enough to choose for you. '
           : '') +
         'Press <b>Change</b> and pick the product this listing sells — you will only be asked once.</div>';
   }
+  // The panel is the one place the answer lives, so it must LOOK like the answer:
+  // calm blue when a shelf is chosen, amber when nothing will be deducted.
+  var linked = !!STK.choice;
+  panel.style.background  = linked ? 'rgba(0,197,255,.08)' : 'rgba(255,152,0,.10)';
+  panel.style.borderColor = linked ? 'rgba(0,197,255,.35)' : 'rgba(255,152,0,.45)';
+  panel.style.borderLeftColor = linked ? '#00c5ff' : '#ff9800';
 }
 function stkEsc(s) {
   return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/* Forget the current answer without touching the box the packer is typing in.
+   Called the instant the product name stops matching the answer we hold. */
+function stkDisarm() {
+  STK.choice = null; STK.source = ''; STK.options = [];
+  var hid = stkEl('stockId'); if (hid) hid.value = '';
+  var body = stkEl('stockBody'), panel = stkEl('stockPanel');
+  if (panel && body) { panel.style.display = 'block'; body.innerHTML = '<span style="opacity:.75;">Checking the warehouse…</span>'; }
 }
 
 function stkOpenPicker() {
@@ -1482,7 +1519,14 @@ function stkPick(id) {
   document.addEventListener('input', function (ev) {
     var el = ev.target;
     if (!el || !el.id) return;
-    if (el.id === 'productInput') { clearTimeout(t); t = setTimeout(function () { stkLookup(false); }, 400); }
+    if (el.id === 'productInput') {
+      // Disarm FIRST, ask second. The hidden stockId still holds the PREVIOUS
+      // product's shelf, and between the keystroke and the answer (1.5–3 s) the
+      // form is submittable — pressing Save in that window would have debited
+      // the shelf of whatever was in the box a moment ago.
+      if (String(el.value || '').trim() !== STK.lastTitle) stkDisarm();
+      clearTimeout(t); t = setTimeout(function () { stkLookup(false); }, 400);
+    }
     if (el.id === 'saleQty') stkPaint();
   }, true);
   document.addEventListener('change', function (ev) {
@@ -1648,6 +1692,14 @@ setTimeout(fjLoadNames, 900);
         var item = e.target.closest('.combo-item');
         if(!item) return;
         input.value = item.getAttribute('data-val');
+        // ⚠ Setting .value in code fires NOTHING. The stock lookup listens for
+        // 'input'/'change' on this box, so for as long as this was a bare
+        // assignment, choosing a product from the dropdown — the ordinary way to
+        // choose one — left the warehouse never asked and the order saved with
+        // no stock item. Six orders in a row on 15 Aug 2026 went out that way.
+        // Anything else watching this field gets told at the same time.
+        input.dispatchEvent(new Event('input',{bubbles:true}));
+        input.dispatchEvent(new Event('change',{bubbles:true}));
         closeList();
         input.blur(); // dismiss mobile keyboard
     });
@@ -2200,6 +2252,24 @@ document.getElementById("orderForm").addEventListener("submit", function(e){
     if(_opSrcQty && _qtyNow!==_opSrcQty){
         if(!confirm("QUANTITY MISMATCH\n\nThe marketplace order says "+_opSrcQty+" unit"+(_opSrcQty===1?'':'s')+".\nYou are about to save "+_qtyNow+".\n\nPacking the wrong count sends the buyer a short shipment.\n\nSave "+_qtyNow+" anyway?")){
             if(_sqEl){ _sqEl.focus(); _sqEl.select && _sqEl.select(); }
+            return;
+        }
+    }
+    // Stock guard. Saying "not deducted" in a column nobody reads is not telling
+    // anyone: on 15 Aug 2026 six orders in a row went out unlinked and the first
+    // anyone knew was reading the sheet that evening. An unlinked order is still
+    // allowed — some listings genuinely have no shelf — but it is now a decision
+    // somebody makes, not something that happens quietly.
+    var _stkIdEl=document.getElementById('stockId');
+    var _stkId=_stkIdEl?String(_stkIdEl.value||'').trim():'';
+    if(!_stkId){
+        var _why = STK.source==='error'
+            ? "The stock list could not be reached, so this order could not be linked to a shelf."
+            : "This listing is not linked to any item on the warehouse shelf yet.";
+        if(!confirm("STOCK WILL NOT BE DEDUCTED\n\n"+_why+"\n\nNothing will come off the shelf for:\n"+(document.getElementById('productInput')||{}).value+"\n\nPress Cancel to pick the stock item (📦 Stock → Change) — you are only asked once per listing.\n\nSave without deducting stock?")){
+            var _sp=document.getElementById('stockPanel');
+            if(_sp && _sp.scrollIntoView) _sp.scrollIntoView({behavior:'smooth',block:'center'});
+            if(STK.source==='error'){ stkLookup(true); } else { stkOpenPicker(); }
             return;
         }
     }
