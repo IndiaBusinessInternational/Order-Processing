@@ -835,7 +835,7 @@ select option:disabled{color:#999!important;font-style:italic;}
 // Scheme:
 //   • Small patch  (bug fix / UI tweak): bump the part after the dot →  v10.9 → v10.10 → v10.11 …
 //   • Big feature  (new module / major change): bump the whole number, drop the dot →  v10.x → v11 → v12 …
-var APP_VERSION = "v13.3"; // ← change here on every release
+var APP_VERSION = "v14.0"; // ← change here on every release
 // ─────────────────────────────────────────────
 (function(){
     var chip = document.getElementById('verChip');
@@ -1385,6 +1385,37 @@ function fjPromptKey(force) {
    pre-ticks rubbish just launders the mistake.                              */
 var STK = { list: [], choice: null, source: '', seq: 0, lastTitle: '' };
 
+/* ── pack size, read the same way the backend reads it ─────────────────────
+   The ", 2 Qty" ending an IBI name is the size of ONE sellable unit — not how many
+   the buyer bought (that is Qty Sold). An order for the 2 Qty pack must come off the
+   2 Qty shelf. Until 19 Aug 2026 nothing on this screen showed the pack size at all:
+   the picker listed "…150 gm, 1Qty" directly beneath "…150 gm each, 2 Qty", the two
+   lines differ by two characters, and the wrong one was tapped four times on the live
+   sheet — after which the choice was remembered and repeated silently for good.
+   ⚠ Keep this in step with _opPackSize_ in the .gs; they are one rule in two places. */
+var STK_JUNK_SEG = /(^|\s)(sku|asin|hsn|ean|upc|fnsku)\s*:|\bB0[A-Z0-9]{8}\b|^(?=[^\s]*\d)[A-Z0-9][A-Z0-9\-_]{7,}$/i;
+function stkNorm(s) {
+  var segs = String(s == null ? '' : s).split('|'), keep = [];
+  for (var i = 0; i < segs.length; i++) {
+    var seg = segs[i].trim();
+    if (seg && !STK_JUNK_SEG.test(seg)) keep.push(seg);
+  }
+  return (keep.length ? keep.join(' ') : segs[0])
+    .replace(/\bSKU\s*:.*$/i, '').replace(/\bHSN\s*:\s*\d+/i, '')
+    .toLowerCase().replace(/×/g, 'x').replace(/[^\w.\s]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+function stkPack(name) {
+  var n = stkNorm(name), m;
+  if ((m = n.match(/\b(\d+)\s*qty\b/)))               return parseInt(m[1], 10) || 1;
+  if ((m = n.match(/\b(?:pack|set)\s+of\s+(\d+)\b/))) return parseInt(m[1], 10) || 1;
+  if ((m = n.match(/\b(\d+)\s*(?:pieces|pcs)\b/)))    return parseInt(m[1], 10) || 1;
+  return 1;   // nothing stated = a single unit, which is what those rows are
+}
+/** The pack size the listing currently in the form is selling. */
+function stkOrderPack() {
+  return stkPack(String((stkEl('productInput') || {}).value || ''));
+}
+
 function stkEl(id) { return document.getElementById(id); }
 function stkQty()  { var q = parseInt((stkEl('saleQty') || {}).value, 10); return (isNaN(q) || q < 1) ? 1 : q; }
 
@@ -1445,17 +1476,28 @@ function stkPaint() {
     var have  = (STK.choice.packed || 0) + (STK.choice.loose || 0);
     var after = have - stkQty();
     var warn  = after < 0;
+    var wantP = stkOrderPack(), gotP = stkPack(STK.choice.product);
+    var packBad = (wantP !== gotP);
     body.innerHTML =
-      '<div style="font-weight:800;">' + stkEsc(STK.choice.product) + '</div>' +
-      '<div style="margin-top:3px;">' +
-        'On the shelf <b>' + have + '</b> → after this order <b style="color:' + (warn ? '#ff5252' : '#00c5ff') + ';">' + Math.max(0, after) + '</b>' +
-        (warn ? ' <span style="color:#ff5252;font-weight:800;">— short by ' + Math.abs(after) + '</span>' : '') +
-      '</div>' +
-      '<div style="margin-top:4px;font-size:12px;opacity:.75;">' +
-        (STK.source === 'remembered'
-          ? 'Remembered from the last time this listing was packed.'
-          : 'Best match — check it is right; your choice is remembered for next time.') +
-      '</div>';
+      '<div style="font-weight:800;">' + stkEsc(STK.choice.product) +
+        ' <span style="font-size:11.5px;padding:2px 7px;border-radius:999px;white-space:nowrap;' +
+          (packBad ? 'background:rgba(255,82,82,.18);color:#ff8a80;border:1px solid rgba(255,82,82,.5);'
+                   : 'background:rgba(0,197,255,.16);color:#00c5ff;border:1px solid rgba(0,197,255,.45);') +
+        '">× ' + gotP + ' pack</span></div>' +
+      (packBad
+        ? '<div style="margin-top:5px;color:#ff5252;font-weight:800;">⚠ Wrong pack — nothing will be deducted</div>' +
+          '<div style="margin-top:2px;font-size:12.5px;opacity:.9;">This order is a <b>' + wantP +
+            ' Qty</b> pack but that shelf is a <b>' + gotP + ' Qty</b> pack. Press <b>Change</b> and pick the ' +
+            wantP + ' Qty row.</div>'
+        : '<div style="margin-top:3px;">' +
+            'On the shelf <b>' + have + '</b> → after this order <b style="color:' + (warn ? '#ff5252' : '#00c5ff') + ';">' + Math.max(0, after) + '</b>' +
+            (warn ? ' <span style="color:#ff5252;font-weight:800;">— short by ' + Math.abs(after) + '</span>' : '') +
+          '</div>' +
+          '<div style="margin-top:4px;font-size:12px;opacity:.75;">' +
+            (STK.source === 'remembered'
+              ? 'Remembered from the last time this listing was packed.'
+              : 'Best match — check it is right; your choice is remembered for next time.') +
+          '</div>');
   } else if (STK.source === 'error') {
     body.innerHTML =
       '<div style="font-weight:800;color:#ff5252;">Could not reach the stock list</div>' +
@@ -1472,7 +1514,8 @@ function stkPaint() {
   }
   // The panel is the one place the answer lives, so it must LOOK like the answer:
   // calm blue when a shelf is chosen, amber when nothing will be deducted.
-  var linked = !!STK.choice;
+  // A wrong pack is NOT "linked" — it deducts nothing, so it must not look settled.
+  var linked = !!STK.choice && stkPack(STK.choice.product) === stkOrderPack();
   panel.style.background  = linked ? 'rgba(0,197,255,.08)' : 'rgba(255,152,0,.10)';
   panel.style.borderColor = linked ? 'rgba(0,197,255,.35)' : 'rgba(255,152,0,.45)';
   panel.style.borderLeftColor = linked ? '#00c5ff' : '#ff9800';
@@ -1515,18 +1558,41 @@ function stkRenderList(q) {
     rows = ordered;
   }
   if (!rows.length) { host.innerHTML = '<div style="padding:10px;opacity:.7;font-size:13px;">Nothing matches that.</div>'; return; }
+  /* The pack size gets its OWN element on every row — never left as a substring of
+     the name for the eye to find. Rows that are the wrong pack for this order stay
+     reachable (occasionally the shelf really is named differently) but are dimmed and
+     badged, so picking one is a deliberate act instead of an easy accident. */
+  var want = stkOrderPack();
   host.innerHTML = rows.slice(0, 60).map(function (r) {
     var have = (r.packed || 0) + (r.loose || 0);
-    return '<div onclick="stkPick(\'' + r.id + '\')" style="padding:8px 10px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,.08);font-size:13px;display:flex;justify-content:space-between;gap:10px;">' +
-             '<span>' + stkEsc(r.product) + '</span>' +
+    var pk   = stkPack(r.product), bad = (pk !== want);
+    return '<div onclick="stkPick(\'' + r.id + '\')" style="padding:8px 10px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,.08);font-size:13px;display:flex;justify-content:space-between;gap:10px;align-items:center;' +
+             (bad ? 'opacity:.55;' : '') + '">' +
+             '<span style="flex:1;min-width:0;">' + stkEsc(r.product) + '</span>' +
+             '<span style="white-space:nowrap;font-weight:800;font-size:11.5px;padding:2px 7px;border-radius:999px;' +
+               (bad ? 'background:rgba(255,82,82,.18);color:#ff8a80;border:1px solid rgba(255,82,82,.5);'
+                    : 'background:rgba(0,197,255,.16);color:#00c5ff;border:1px solid rgba(0,197,255,.45);') + '">' +
+               '× ' + pk + ' pack' + (bad ? ' ≠' : '') + '</span>' +
              '<b style="white-space:nowrap;opacity:.8;">' + have + '</b>' +
            '</div>';
   }).join('');
 }
 function stkPick(id) {
-  for (var i = 0; i < STK.list.length; i++) {
-    if (STK.list[i].id === id) { STK.choice = STK.list[i]; STK.source = 'chosen'; break; }
-  }
+  var row = null;
+  for (var i = 0; i < STK.list.length; i++) if (STK.list[i].id === id) { row = STK.list[i]; break; }
+  if (!row) return;
+  /* Ask before letting a wrong pack through. This is the one moment a human is
+     actually looking at both names, and it is where all four live mistakes were
+     made — the backend will refuse the deduction anyway, so a silent accept here
+     would only produce an order that quietly deducted nothing. */
+  var want = stkOrderPack(), got = stkPack(row.product);
+  if (got !== want && !confirm(
+        'Pack sizes do not match.\n\n' +
+        'This order is a ' + want + ' Qty pack.\n' +
+        '"' + row.product + '" is a ' + got + ' Qty pack.\n\n' +
+        'Stock will NOT be deducted while they disagree.\n' +
+        'Pick this anyway?')) return;
+  STK.choice = row; STK.source = 'chosen';
   var p = stkEl('stockPicker'); if (p) p.style.display = 'none';
   stkPaint();
 }
@@ -2290,6 +2356,20 @@ document.getElementById("orderForm").addEventListener("submit", function(e){
             if(_sp && _sp.scrollIntoView) _sp.scrollIntoView({behavior:'smooth',block:'center'});
             if(STK.source==='error'){ stkLookup(true); } else { stkOpenPicker(); }
             return;
+        }
+    }
+    // Pack guard. Same reasoning as the quantity guard above, one level down: the
+    // right product in the wrong pack size is the failure that actually happened,
+    // and it is invisible unless somebody is told in words.
+    if(_stkId && STK.choice){
+        var _wantPack=stkOrderPack(), _gotPack=stkPack(STK.choice.product);
+        if(_wantPack!==_gotPack){
+            if(!confirm("WRONG PACK — STOCK WILL NOT BE DEDUCTED\n\nThis order is a "+_wantPack+" Qty pack.\nThe linked shelf \""+STK.choice.product+"\" is a "+_gotPack+" Qty pack.\n\nThey are different products, so nothing will come off either shelf.\n\nPress Cancel to pick the "+_wantPack+" Qty row (📦 Stock → Change).\n\nSave without deducting stock?")){
+                var _sp2=document.getElementById('stockPanel');
+                if(_sp2 && _sp2.scrollIntoView) _sp2.scrollIntoView({behavior:'smooth',block:'center'});
+                stkOpenPicker();
+                return;
+            }
         }
     }
     document.getElementById("loader").style.display="flex";
