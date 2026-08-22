@@ -835,7 +835,7 @@ select option:disabled{color:#999!important;font-style:italic;}
 // Scheme:
 //   • Small patch  (bug fix / UI tweak): bump the part after the dot →  v10.9 → v10.10 → v10.11 …
 //   • Big feature  (new module / major change): bump the whole number, drop the dot →  v10.x → v11 → v12 …
-var APP_VERSION = "v14.1"; // ← change here on every release
+var APP_VERSION = "v14.2"; // ← change here on every release
 // ─────────────────────────────────────────────
 (function(){
     var chip = document.getElementById('verChip');
@@ -1700,13 +1700,18 @@ function fjLoadNames() {
 }
 
 /* Called after an order is saved. Never blocks, never alerts on failure. */
-function fjDeductStock(data, serialNumber) {
+/* v14.2: shelfName = the warehouse row this order was linked to (📦 Stock panel).
+   Since 22 Aug 2026 the 60 jewellery pieces are rows in the Stock sheet under
+   their register names, so that name matches the register EXACTLY — the typed
+   marketplace title is only the fallback the register tries second. */
+function fjDeductStock(data, serialNumber, shelfName) {
   if (!FJ_API_URL || !FJ_PUSH_KEY) return;
   var qty = parseInt(data.saleQty, 10);
   if (isNaN(qty) || qty < 1) qty = 1;
 
   fjCall('deductStock', {
     productName: data.productName,
+    shelfName: shelfName || '',
     qty: qty,
     serial: serialNumber,
     orderId: data.orderId,
@@ -2465,7 +2470,7 @@ document.getElementById("orderForm").addEventListener("submit", function(e){
             });
             // If the piece sold is on the IBI Fashion Jewellery register, take
             // it off stock there too. Fire-and-forget — the order is saved.
-            fjDeductStock(data, result.serialNumber);
+            fjDeductStock(data, result.serialNumber, (_stk.result && _stk.result.product) || '');
             resetForm();
             _trkDropProcessed(data.orderId, data.invoiceNumber);
         } else { alert("Error: "+result.message); }
