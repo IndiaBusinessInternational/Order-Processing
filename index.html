@@ -904,7 +904,7 @@ select option:disabled{color:#999!important;font-style:italic;}
 // Scheme:
 //   • Small patch  (bug fix / UI tweak): bump the part after the dot →  v10.9 → v10.10 → v10.11 …
 //   • Big feature  (new module / major change): bump the whole number, drop the dot →  v10.x → v11 → v12 …
-var APP_VERSION = "v15.0"; // ← change here on every release
+var APP_VERSION = "v15.1"; // ← change here on every release
 // ─────────────────────────────────────────────
 (function(){
     var chip = document.getElementById('verChip');
@@ -1089,6 +1089,37 @@ function _opLoginErr(msg){
   el.textContent = msg || '';
   el.style.display = msg ? 'block' : 'none';
 }
+/* v15.1 — Google sometimes answers a busy account with its own HTML error page
+   (or drops the connection) instead of running the script. Sign-in is safe to
+   repeat, so try up to OP_LOGIN_TRIES times before showing an error. Only a
+   reply we cannot read is retried; a real answer ("wrong password", "locked")
+   is shown at once. */
+var OP_LOGIN_TRIES = 3;
+function _opWait(ms){ return new Promise(function(res){ setTimeout(res, ms); }); }
+/* Runs `fn` (returns a Promise of the reply text) until the text parses as
+   JSON. Resolves the parsed reply, or null when every try failed;
+   `lastErr.net` says whether the last failure was no connection at all. */
+function _opGasTry(fn, onRetry, lastErr){
+  var attempt = 1;
+  function go(){
+    return fn().then(function(txt){
+      var j = null; try { j = JSON.parse(txt); } catch(e){}
+      if (j) return j;
+      lastErr.net = false;
+      return again();
+    }, function(){
+      lastErr.net = true;
+      return again();
+    });
+  }
+  function again(){
+    if (attempt >= OP_LOGIN_TRIES) return null;
+    attempt++;
+    if (onRetry) onRetry(attempt);
+    return _opWait(attempt === 2 ? 2000 : 4000).then(go);
+  }
+  return go();
+}
 function opDoLogin(ev){
   if (ev) ev.preventDefault();
   var u = (document.getElementById('opLoginUser') || {}).value || '';
@@ -1097,20 +1128,31 @@ function opDoLogin(ev){
   var btn = document.getElementById('opLoginBtn');
   if (btn) { btn.disabled = true; btn.textContent = 'Signing in…'; }
   _opLoginErr('');
+  var lastErr = { net: false };
+  function retrying(n){ if (btn) btn.textContent = 'Busy — retrying ' + n + ' of ' + OP_LOGIN_TRIES + '…'; }
+  function done(){ if (btn) { btn.disabled = false; btn.textContent = 'Sign in'; } }
   // ⚠ Ask the backend whether it HAS a sign-in before POSTing one: a doPost
   // older than v15.0 saves any POST it does not recognise as an order row.
   // A GET ping is harmless on every version.
-  _opBackendHasLogin()
+  _opBackendHasLogin(retrying, lastErr)
     .then(function(has){
+      if (has === null) return null;            // the ping never got a readable answer
       if (!has) throw { older: true };
-      return fetch(SCRIPT_URL, { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
-        body: JSON.stringify({ action:'login', username:u.trim(), password:p }) });
+      if (btn) btn.textContent = 'Signing in…';
+      return _opGasTry(function(){
+        return fetch(SCRIPT_URL, { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+          body: JSON.stringify({ action:'login', username:u.trim(), password:p }) })
+          .then(function(r){ return r.text(); });
+      }, retrying, lastErr);
     })
-    .then(function(r){ return r.text(); })
-    .then(function(txt){
-      var res = null; try { res = JSON.parse(txt); } catch(e){}
-      if (btn) { btn.disabled = false; btn.textContent = 'Sign in'; }
-      if (!res) { _opLoginErr('The server is busy (Google sent an error page). Wait a few seconds and press Sign in again.'); return; }
+    .then(function(res){
+      done();
+      if (!res) {
+        _opLoginErr(lastErr.net
+          ? 'No connection. Check the internet and press Sign in again.'
+          : 'The server is busy (Google sent an error page ' + OP_LOGIN_TRIES + ' times). Wait a minute and press Sign in again.');
+        return;
+      }
       if (res.ok && res.token) {
         _opStaffToken = res.token;
         _opBackendVer = res.version || '';
@@ -1133,7 +1175,7 @@ function opDoLogin(ev){
       else _opLoginErr('Wrong username or password. The username is IBI-Orders.');
     })
     .catch(function(err){
-      if (btn) { btn.disabled = false; btn.textContent = 'Sign in'; }
+      done();
       if (err && err.older) {
         // Nothing to sign in to yet — get out of the way.
         var ov0 = document.getElementById('opLogin'); if (ov0) ov0.style.display = 'none';
@@ -1143,13 +1185,16 @@ function opDoLogin(ev){
     });
 }
 var _opHasLogin = null;
-function _opBackendHasLogin(){
+/* Resolves true / false, or null when no try got a readable answer. */
+function _opBackendHasLogin(onRetry, lastErr){
   if (_opHasLogin === true) return Promise.resolve(true);
-  return fetch(SCRIPT_URL + '?action=ping&t=' + Date.now())
-    .then(function(r){ return r.json(); })
+  return _opGasTry(function(){
+    return fetch(SCRIPT_URL + '?action=ping&t=' + Date.now()).then(function(r){ return r.text(); });
+  }, onRetry, lastErr || { net: false })
     .then(function(j){
-      _opHasLogin = !!(j && Array.isArray(j.features) && j.features.indexOf('login') !== -1);
-      if (j && j.version) _opBackendVer = j.version;
+      if (!j) return null;
+      _opHasLogin = !!(Array.isArray(j.features) && j.features.indexOf('login') !== -1);
+      if (j.version) _opBackendVer = j.version;
       return _opHasLogin;
     });
 }
