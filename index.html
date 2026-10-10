@@ -771,13 +771,14 @@ select option:disabled{color:#999!important;font-style:italic;}
            packer was never told, because this panel only whispered it). -->
       <div id="stockPanel" style="display:none;margin-top:10px;background:rgba(0,197,255,.08);border:1px solid rgba(0,197,255,.35);border-left:4px solid #00c5ff;border-radius:8px;padding:10px 12px;">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
-          <div style="font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#00c5ff;">📦 Stock</div>
-          <button type="button" id="stockChangeBtn" onclick="stkOpenPicker()"
-                  style="padding:5px 12px;background:transparent;color:#00c5ff;border:1px solid rgba(0,197,255,.5);border-radius:6px;font-size:11.5px;font-weight:700;cursor:pointer;">Change</button>
+          <div style="font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#00c5ff;">📦 Stock</div>
+          <button type="button" id="stockChangeBtn" onclick="stkChange()"
+                  style="padding:5px 12px;background:transparent;color:#00c5ff;border:1px solid rgba(0,197,255,.5);border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;">Change</button>
         </div>
         <div id="stockBody" style="margin-top:7px;font-size:13.5px;line-height:1.5;"></div>
         <!-- Picker. Same shape as the Product Name combo above so it needs no learning. -->
         <div id="stockPicker" style="display:none;margin-top:8px;">
+          <div id="stockPickHint" style="display:none;margin-bottom:6px;font-size:12.5px;font-weight:700;color:#00c5ff;"></div>
           <input type="text" id="stockSearch" placeholder="Search the stock list…" autocomplete="off"
                  oninput="stkRenderList(this.value)"
                  style="width:100%;box-sizing:border-box;padding:9px 12px;border-radius:6px;font-size:13.5px;"/>
@@ -785,6 +786,9 @@ select option:disabled{color:#999!important;font-style:italic;}
         </div>
       </div>
       <input type="hidden" name="stockId" id="stockId" value=""/>
+      <!-- v15.2: a combo / multi-item order — JSON [{id, qty}] of EVERY line when the
+           packer added a second item; empty for an ordinary one-item order. -->
+      <input type="hidden" name="stockLines" id="stockLines" value=""/>
 
       <div class="section-label">Dimensions (Product)</div>
       <div class="grid-4">
@@ -904,7 +908,7 @@ select option:disabled{color:#999!important;font-style:italic;}
 // Scheme:
 //   • Small patch  (bug fix / UI tweak): bump the part after the dot →  v10.9 → v10.10 → v10.11 …
 //   • Big feature  (new module / major change): bump the whole number, drop the dot →  v10.x → v11 → v12 …
-var APP_VERSION = "v15.1"; // ← change here on every release
+var APP_VERSION = "v15.2"; // ← change here on every release
 // ─────────────────────────────────────────────
 (function(){
     var chip = document.getElementById('verChip');
@@ -1697,7 +1701,64 @@ function fjPromptKey(force) {
    'unsure' when the best candidate is too weak to tick on someone's behalf.
    A weak guess is deliberately NOT pre-selected — a confirmation step that
    pre-ticks rubbish just launders the mistake.                              */
-var STK = { list: [], choice: null, source: '', seq: 0, lastTitle: '' };
+var STK = { list: [], choice: null, source: '', seq: 0, lastTitle: '',
+            extra: [], mainQty: 1, pickFor: 'main' };
+
+/* ── v15.2: COMBO / MULTI-ITEM ─────────────────────────────────────────────
+   One order line can sell several different pieces — a combo listing
+   ("Hydro crystal-104&106" = Black + Navy Blue, Flipkart, 9 Oct 2026), or two
+   items the marketplace printed as one line. Same standard as every order
+   system's "combo SKU": list the items once, each with how many go in ONE
+   order, and every one comes off its own shelf. The backend remembers the
+   combo, so the next order of that listing fills all lines by itself.
+   STK.choice + STK.mainQty is line 1; STK.extra holds lines 2, 3… as {row, qty}. */
+function stkLines() {
+  if (!STK.choice) return [];
+  return [{ row: STK.choice, qty: STK.mainQty || 1 }].concat(STK.extra || []);
+}
+function stkIsCombo() { return !!STK.choice && STK.extra && STK.extra.length > 0; }
+/* A combo's own pack rule (same as the backend's _opComboCheck_): a title that
+   states a pack must add up to exactly that many pieces; "1 Qty" or nothing
+   stated = one combo, whatever is in it. */
+function stkComboPieces() {
+  return stkLines().reduce(function (s, l) { return s + stkPack(l.row.product) * l.qty; }, 0);
+}
+function stkComboPackOk() {
+  var want = stkOrderPack();
+  return want <= 1 || stkComboPieces() === want;
+}
+/* "Change" always means line 1. If the picker is open for ADDING a line, switch it
+   over instead of closing it. */
+function stkChange() {
+  var p = stkEl('stockPicker');
+  if (p && p.style.display === 'block' && STK.pickFor === 'add') p.style.display = 'none';
+  STK.pickFor = 'main';
+  stkOpenPicker();
+}
+function stkAddItem() {
+  STK.pickFor = 'add';
+  var p = stkEl('stockPicker');
+  if (p) p.style.display = 'none';           // stkOpenPicker toggles; force it open
+  stkOpenPicker();
+}
+function stkLineQty(i, delta) {
+  if (i === 0) STK.mainQty = Math.max(1, (STK.mainQty || 1) + delta);
+  else if (STK.extra[i - 1]) STK.extra[i - 1].qty = Math.max(1, STK.extra[i - 1].qty + delta);
+  stkPaint();
+}
+function stkRemoveLine(i) {
+  if (i === 0) {
+    // Line 1 removed: the next line moves up and becomes the main item.
+    var nx = STK.extra.shift();
+    STK.choice = nx ? nx.row : null; STK.mainQty = nx ? nx.qty : 1;
+    if (!STK.choice) STK.source = '';
+  } else {
+    STK.extra.splice(i - 1, 1);
+  }
+  if (!STK.extra.length) STK.mainQty = 1;
+  if (STK.source === 'remembered') STK.source = 'chosen';   // edited by hand → saved as the new answer
+  stkPaint();
+}
 
 /* ── pack size, read the same way the backend reads it ─────────────────────
    The ", 2 Qty" ending an IBI name is the size of ONE sellable unit — not how many
@@ -1779,6 +1840,13 @@ function stkTry(title, mySeq, attempt) {
     STK.source = res.source || 'none';
     STK.choice = res.choice || null;
     STK.options = res.options || [];
+    // v15.2: a remembered combo arrives as `lines` — line 1 is the choice.
+    STK.extra = []; STK.mainQty = 1;
+    if (res.lines && res.lines.length >= 2) {
+      STK.choice  = res.lines[0];
+      STK.mainQty = Math.max(1, parseInt(res.lines[0].qty, 10) || 1);
+      STK.extra   = res.lines.slice(1).map(function (l) { return { row: l, qty: Math.max(1, parseInt(l.qty, 10) || 1) }; });
+    }
     stkPaint();
   })
   .catch(function () {
@@ -1798,11 +1866,53 @@ function stkTry(title, mySeq, attempt) {
 function stkPaint() {
   var panel = stkEl('stockPanel'), body = stkEl('stockBody'), hid = stkEl('stockId');
   if (!panel || !body || !hid) return;
-  if (!String((stkEl('productInput') || {}).value || '').trim()) { panel.style.display = 'none'; hid.value = ''; return; }
+  if (!String((stkEl('productInput') || {}).value || '').trim()) {
+    panel.style.display = 'none'; hid.value = '';
+    var hl0 = stkEl('stockLines'); if (hl0) hl0.value = '';
+    return;
+  }
   panel.style.display = 'block';
   hid.value = STK.choice ? STK.choice.id : '';
+  var linesEl = stkEl('stockLines');
+  if (linesEl) linesEl.value = stkIsCombo()
+    ? JSON.stringify(stkLines().map(function (l) { return { id: l.row.id, qty: l.qty }; }))
+    : '';
 
-  if (STK.choice) {
+  if (stkIsCombo()) {
+    var lines = stkLines(), packOk = stkComboPackOk(), sold = stkQty();
+    var btn = 'min-width:36px;height:36px;padding:0 10px;background:transparent;color:#00c5ff;border:1px solid rgba(0,197,255,.5);border-radius:6px;font-size:16px;font-weight:800;cursor:pointer;';
+    body.innerHTML =
+      '<div style="font-weight:800;color:#00c5ff;font-size:12.5px;letter-spacing:.04em;">COMBO — ' + lines.length +
+        ' items come off the shelf for this order</div>' +
+      lines.map(function (l, i) {
+        var have = (l.row.packed || 0) + (l.row.loose || 0);
+        var take = l.qty * sold, after = have - take;
+        return '<div style="margin-top:8px;padding:8px 10px;border:1px solid rgba(0,197,255,.25);border-radius:8px;">' +
+          '<div style="font-weight:800;">' + (i + 1) + '. ' + stkEsc(l.row.product) +
+            ' <span style="font-size:12px;padding:2px 7px;border-radius:999px;white-space:nowrap;background:rgba(0,197,255,.16);color:#00c5ff;border:1px solid rgba(0,197,255,.45);">× ' +
+            stkPack(l.row.product) + ' pack</span></div>' +
+          '<div style="margin-top:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">' +
+            '<span style="font-size:12.5px;opacity:.85;">Per order</span>' +
+            '<button type="button" aria-label="One less" onclick="stkLineQty(' + i + ',-1)" style="' + btn + '">−</button>' +
+            '<b style="min-width:20px;text-align:center;">' + l.qty + '</b>' +
+            '<button type="button" aria-label="One more" onclick="stkLineQty(' + i + ',1)" style="' + btn + '">+</button>' +
+            '<button type="button" onclick="stkRemoveLine(' + i + ')" style="' + btn + 'font-size:12.5px;color:#ff8a80;border-color:rgba(255,82,82,.5);margin-left:auto;">✕ Remove</button>' +
+          '</div>' +
+          '<div style="margin-top:5px;font-size:13px;">On the shelf <b>' + have + '</b> → after this order <b style="color:' +
+            (after < 0 ? '#ff5252' : '#00c5ff') + ';">' + Math.max(0, after) + '</b>' +
+            (after < 0 ? ' <span style="color:#ff5252;font-weight:800;">— short by ' + Math.abs(after) + '</span>' : '') +
+          '</div></div>';
+      }).join('') +
+      (packOk ? ''
+        : '<div style="margin-top:8px;color:#ff5252;font-weight:800;">⚠ Pieces do not add up — nothing will be deducted</div>' +
+          '<div style="margin-top:2px;font-size:12.5px;opacity:.9;">This listing is a <b>' + stkOrderPack() +
+            ' Qty</b> pack but the combo has <b>' + stkComboPieces() + '</b> pieces. Fix the per-order counts.</div>') +
+      '<div style="margin-top:6px;font-size:12px;opacity:.75;">' +
+        (STK.source === 'remembered'
+          ? 'Remembered combo from the last time this listing was packed.'
+          : 'Saved as this listing\'s combo — next time every item fills in by itself.') +
+      '</div>';
+  } else if (STK.choice) {
     var have  = (STK.choice.packed || 0) + (STK.choice.loose || 0);
     var after = have - stkQty();
     var warn  = after < 0;
@@ -1845,7 +1955,14 @@ function stkPaint() {
   // The panel is the one place the answer lives, so it must LOOK like the answer:
   // calm blue when a shelf is chosen, amber when nothing will be deducted.
   // A wrong pack is NOT "linked" — it deducts nothing, so it must not look settled.
-  var linked = !!STK.choice && stkPack(STK.choice.product) === stkOrderPack();
+  var linked = !!STK.choice && (stkIsCombo() ? stkComboPackOk() : stkPack(STK.choice.product) === stkOrderPack());
+  /* v15.2: the way into a combo. Offered whenever line 1 is set — a combo
+     listing, or two pieces the marketplace printed as one order line. */
+  if (STK.choice) {
+    body.innerHTML +=
+      '<button type="button" onclick="stkAddItem()" style="margin-top:9px;min-height:38px;padding:7px 12px;background:transparent;color:#00c5ff;border:1px dashed rgba(0,197,255,.6);border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;width:100%;">' +
+      '＋ Add another item (combo / 2 products in this order)</button>';
+  }
   panel.style.background  = linked ? 'rgba(0,197,255,.08)' : 'rgba(255,152,0,.10)';
   panel.style.borderColor = linked ? 'rgba(0,197,255,.35)' : 'rgba(255,152,0,.45)';
   panel.style.borderLeftColor = linked ? '#00c5ff' : '#ff9800';
@@ -1857,8 +1974,9 @@ function stkEsc(s) {
 /* Forget the current answer without touching the box the packer is typing in.
    Called the instant the product name stops matching the answer we hold. */
 function stkDisarm() {
-  STK.choice = null; STK.source = ''; STK.options = [];
+  STK.choice = null; STK.source = ''; STK.options = []; STK.extra = []; STK.mainQty = 1;
   var hid = stkEl('stockId'); if (hid) hid.value = '';
+  var hl = stkEl('stockLines'); if (hl) hl.value = '';
   var body = stkEl('stockBody'), panel = stkEl('stockPanel');
   if (panel && body) { panel.style.display = 'block'; body.innerHTML = '<span style="opacity:.75;">Checking the warehouse…</span>'; }
 }
@@ -1868,7 +1986,14 @@ function stkOpenPicker() {
   if (!p) return;
   var opening = (p.style.display === 'none' || !p.style.display);
   p.style.display = opening ? 'block' : 'none';
+  if (!opening) STK.pickFor = 'main';
   if (opening) {
+    var hint = stkEl('stockPickHint');
+    if (hint) {
+      var adding = STK.pickFor === 'add';
+      hint.style.display = adding ? 'block' : 'none';
+      hint.textContent = adding ? 'Pick item ' + (stkLines().length + 1) + ' of this combo / order:' : '';
+    }
     stkRenderList('');
     var s = stkEl('stockSearch'); if (s) { s.value = ''; s.focus(); }
   }
@@ -1893,16 +2018,21 @@ function stkRenderList(q) {
      reachable (occasionally the shelf really is named differently) but are dimmed and
      badged, so picking one is a deliberate act instead of an easy accident. */
   var want = stkOrderPack();
+  // v15.2: in a combo each item is its own product, so the listing's pack size
+  // says nothing about a single line — no ≠ badge while adding a line.
+  var adding = STK.pickFor === 'add';
+  var inCombo = {};
+  stkLines().forEach(function (l) { inCombo[l.row.id] = 1; });
   host.innerHTML = rows.slice(0, 60).map(function (r) {
     var have = (r.packed || 0) + (r.loose || 0);
-    var pk   = stkPack(r.product), bad = (pk !== want);
+    var pk   = stkPack(r.product), bad = adding ? !!inCombo[r.id] : (pk !== want);
     return '<div onclick="stkPick(\'' + r.id + '\')" style="padding:8px 10px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,.08);font-size:13px;display:flex;justify-content:space-between;gap:10px;align-items:center;' +
              (bad ? 'opacity:.55;' : '') + '">' +
              '<span style="flex:1;min-width:0;">' + stkEsc(r.product) + '</span>' +
              '<span style="white-space:nowrap;font-weight:800;font-size:11.5px;padding:2px 7px;border-radius:999px;' +
                (bad ? 'background:rgba(255,82,82,.18);color:#ff8a80;border:1px solid rgba(255,82,82,.5);'
                     : 'background:rgba(0,197,255,.16);color:#00c5ff;border:1px solid rgba(0,197,255,.45);') + '">' +
-               '× ' + pk + ' pack' + (bad ? ' ≠' : '') + '</span>' +
+               '× ' + pk + ' pack' + (bad ? (adding ? ' · added' : ' ≠') : '') + '</span>' +
              '<b style="white-space:nowrap;opacity:.8;">' + have + '</b>' +
            '</div>';
   }).join('');
@@ -1911,12 +2041,24 @@ function stkPick(id) {
   var row = null;
   for (var i = 0; i < STK.list.length; i++) if (STK.list[i].id === id) { row = STK.list[i]; break; }
   if (!row) return;
+  if (STK.pickFor === 'add') {
+    // v15.2: another line of a combo. The same item twice is one line with a
+    // higher count — use + on that line instead.
+    var dup = stkLines().some(function (l) { return l.row.id === id; });
+    if (dup) { alert('"' + row.product + '" is already in this order.\n\nTo take 2 of it, press + on that line.'); return; }
+    STK.extra.push({ row: row, qty: 1 });
+    STK.pickFor = 'main';
+    if (STK.source === 'remembered') STK.source = 'chosen';
+    var pa = stkEl('stockPicker'); if (pa) pa.style.display = 'none';
+    stkPaint();
+    return;
+  }
   /* Ask before letting a wrong pack through. This is the one moment a human is
      actually looking at both names, and it is where all four live mistakes were
      made — the backend will refuse the deduction anyway, so a silent accept here
      would only produce an order that quietly deducted nothing. */
   var want = stkOrderPack(), got = stkPack(row.product);
-  if (got !== want && !confirm(
+  if (got !== want && !stkIsCombo() && !confirm(
         'Pack sizes do not match.\n\n' +
         'This order is a ' + want + ' Qty pack.\n' +
         '"' + row.product + '" is a ' + got + ' Qty pack.\n\n' +
@@ -1999,14 +2141,20 @@ function fjLoadNames() {
    Since 22 Aug 2026 the 60 jewellery pieces are rows in the Stock sheet under
    their register names, so that name matches the register EXACTLY — the typed
    marketplace title is only the fallback the register tries second. */
-function fjDeductStock(data, serialNumber, shelfName) {
+function fjDeductStock(data, serialNumber, shelfName, comboLines) {
   if (!FJ_API_URL || !FJ_PUSH_KEY) return;
+  /* v15.2: a combo sends EVERY line's shelf with what came off it, so the
+     register takes each piece off — the same lines its poll reads from the
+     order's "Stock Updated" note, under the same keys, so it never counts twice. */
+  var shelves = (comboLines || []).filter(function (l) { return l && l.ok; })
+    .map(function (l) { return { name: l.product, qty: (l.took || 0) + (l.short || 0) }; });
   var qty = parseInt(data.saleQty, 10);
   if (isNaN(qty) || qty < 1) qty = 1;
 
   fjCall('deductStock', {
     productName: data.productName,
     shelfName: shelfName || '',
+    shelves: shelves,
     qty: qty,
     serial: serialNumber,
     orderId: data.orderId,
@@ -2706,7 +2854,15 @@ document.getElementById("orderForm").addEventListener("submit", function(e){
     // Pack guard. Same reasoning as the quantity guard above, one level down: the
     // right product in the wrong pack size is the failure that actually happened,
     // and it is invisible unless somebody is told in words.
-    if(_stkId && STK.choice){
+    // v15.2: a combo is checked as a whole — its pieces must add up to the listing's pack.
+    if(_stkId && stkIsCombo() && !stkComboPackOk()){
+        if(!confirm("COMBO DOES NOT ADD UP — STOCK WILL NOT BE DEDUCTED\n\nThis listing is a "+stkOrderPack()+" Qty pack.\nThe combo has "+stkComboPieces()+" pieces.\n\nPress Cancel to fix the per-order counts in 📦 Stock.\n\nSave without deducting stock?")){
+            var _sp3=document.getElementById('stockPanel');
+            if(_sp3 && _sp3.scrollIntoView) _sp3.scrollIntoView({behavior:'smooth',block:'center'});
+            return;
+        }
+    }
+    if(_stkId && STK.choice && !stkIsCombo()){
         var _wantPack=stkOrderPack(), _gotPack=stkPack(STK.choice.product);
         if(_wantPack!==_gotPack){
             if(!confirm("WRONG PACK — STOCK WILL NOT BE DEDUCTED\n\nThis order is a "+_wantPack+" Qty pack.\nThe linked shelf \""+STK.choice.product+"\" is a "+_gotPack+" Qty pack.\n\nThey are different products, so nothing will come off either shelf.\n\nPress Cancel to pick the "+_wantPack+" Qty row (📦 Stock → Change).\n\nSave without deducting stock?")){
@@ -2752,7 +2908,17 @@ document.getElementById("orderForm").addEventListener("submit", function(e){
             // notice the day it stops moving.
             var _stk = result.stock || {};
             var _stkLine = '';
-            if(_stk.attempted && _stk.ok && _stk.result){
+            if(_stk.attempted && _stk.combo && _stk.result && _stk.result.lines){
+                // v15.2: one line per item of the combo.
+                _stkLine = "\n\nSTOCK ("+_stk.result.lines.length+" items):";
+                _stk.result.lines.forEach(function(l){
+                    _stkLine += l.ok
+                        ? "\n  • "+l.product+"  "+l.before+" → "+l.after+(l.short ? "  ⚠ SHORT BY "+l.short : "")
+                        : "\n  • NOT deducted ("+(l.reason||'failed')+")";
+                });
+            } else if(_stk.attempted && _stk.combo && !_stk.ok){
+                _stkLine = "\n\nSTOCK: combo not deducted ("+(_stk.reason||'failed')+"). The order is saved; adjust stock by hand.";
+            } else if(_stk.attempted && _stk.ok && _stk.result){
                 _stkLine = "\n\nSTOCK: "+_stk.result.product
                          +"\n  "+_stk.result.before+" → "+_stk.result.after
                          +(_stk.result.short ? "  ⚠ SHORT BY "+_stk.result.short : "");
@@ -2776,7 +2942,8 @@ document.getElementById("orderForm").addEventListener("submit", function(e){
             });
             // If the piece sold is on the IBI Fashion Jewellery register, take
             // it off stock there too. Fire-and-forget — the order is saved.
-            fjDeductStock(data, result.serialNumber, (_stk.result && _stk.result.product) || '');
+            fjDeductStock(data, result.serialNumber, (_stk.result && _stk.result.product) || '',
+                          (_stk.combo && _stk.result && _stk.result.lines) || null);
             resetForm();
             _trkDropProcessed(data.orderId, data.invoiceNumber);
         } else if(result.code==="auth"){
@@ -2800,7 +2967,8 @@ function resetForm(){
     _opSrcQty=null; _opShowQtyNotice(1);
     // The stock choice belongs to the order just saved — carrying it into the
     // next one is how the wrong shelf gets debited.
-    STK.choice=null; STK.source=''; STK.lastTitle=''; STK.options=[];
+    STK.choice=null; STK.source=''; STK.lastTitle=''; STK.options=[]; STK.extra=[]; STK.mainQty=1; STK.pickFor='main';
+    var _sl=document.getElementById('stockLines'); if(_sl) _sl.value='';
     var _sp=document.getElementById('stockPanel'); if(_sp) _sp.style.display='none';
     var _spk=document.getElementById('stockPicker'); if(_spk) _spk.style.display='none';
     var _sid=document.getElementById('stockId'); if(_sid) _sid.value='';
@@ -2885,4 +3053,4 @@ function renderHistory(history){
 renderHistory(loadHistory());
 </script>
 </body>
-</html>
+</html>
