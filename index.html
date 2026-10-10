@@ -908,7 +908,7 @@ select option:disabled{color:#999!important;font-style:italic;}
 // Scheme:
 //   • Small patch  (bug fix / UI tweak): bump the part after the dot →  v10.9 → v10.10 → v10.11 …
 //   • Big feature  (new module / major change): bump the whole number, drop the dot →  v10.x → v11 → v12 …
-var APP_VERSION = "v15.2"; // ← change here on every release
+var APP_VERSION = "v15.3"; // ← change here on every release
 // ─────────────────────────────────────────────
 (function(){
     var chip = document.getElementById('verChip');
@@ -1928,7 +1928,7 @@ function stkPaint() {
         ? '<div style="margin-top:5px;color:#ff5252;font-weight:800;">⚠ Wrong pack — nothing will be deducted</div>' +
           '<div style="margin-top:2px;font-size:12.5px;opacity:.9;">This order is a <b>' + wantP +
             ' Qty</b> pack but that shelf is a <b>' + gotP + ' Qty</b> pack. Press <b>Change</b> and pick the ' +
-            wantP + ' Qty row.</div>'
+            wantP + ' Qty row — or, if this listing is a <b>combo</b> of different products, tap <b>＋ Add another item</b> below.</div>'
         : '<div style="margin-top:3px;">' +
             'On the shelf <b>' + have + '</b> → after this order <b style="color:' + (warn ? '#ff5252' : '#00c5ff') + ';">' + Math.max(0, after) + '</b>' +
             (warn ? ' <span style="color:#ff5252;font-weight:800;">— short by ' + Math.abs(after) + '</span>' : '') +
@@ -2062,7 +2062,8 @@ function stkPick(id) {
         'Pack sizes do not match.\n\n' +
         'This order is a ' + want + ' Qty pack.\n' +
         '"' + row.product + '" is a ' + got + ' Qty pack.\n\n' +
-        'Stock will NOT be deducted while they disagree.\n' +
+        'Stock will NOT be deducted while they disagree.\n\n' +
+        'If this listing is a COMBO of different products, press OK, then tap ＋ Add another item for the rest.\n\n' +
         'Pick this anyway?')) return;
   STK.choice = row; STK.source = 'chosen';
   var p = stkEl('stockPicker'); if (p) p.style.display = 'none';
