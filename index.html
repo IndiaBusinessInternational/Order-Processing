@@ -548,7 +548,7 @@ select option:disabled{color:#999!important;font-style:italic;}
   html,body{overflow-x:clip;}
   .wrap,.hist-section{padding-left:0;padding-right:0;}
   .wrap{padding-top:8px;}
-  .card,.hist-card-wrap{border-radius:0;border-left:0;border-right:0;box-shadow:none;margin-bottom:8px;overflow-wrap:anywhere;}
+  .card,.hist-card-wrap{border-radius:0;border-left:0;border-right:0;box-shadow:none;margin-bottom:8px;overflow-wrap:break-word;}
   .card-title,.history-header{padding-left:10px;padding-right:10px;}
   .card-body{padding-left:10px;padding-right:10px;}
   #historyList{padding-left:10px;padding-right:10px;}
@@ -560,6 +560,7 @@ select option:disabled{color:#999!important;font-style:italic;}
   .grid-4,.dim-grid{grid-template-columns:repeat(4,minmax(0,1fr));}
   #opLogin{padding-left:0;padding-right:0;}
   #opLogin .op-login-card{max-width:none;border-radius:0;border-left:0;border-right:0;box-shadow:none;padding-left:10px;padding-right:10px;}
+  button,.btn,select,input,[role="button"]{overflow-wrap:normal}
 }
 
 /* ── STAFF SIGN-IN (v15.0) ── */
@@ -928,7 +929,7 @@ select option:disabled{color:#999!important;font-style:italic;}
 // Scheme:
 //   • Small patch  (bug fix / UI tweak): bump the part after the dot →  v10.9 → v10.10 → v10.11 …
 //   • Big feature  (new module / major change): bump the whole number, drop the dot →  v10.x → v11 → v12 …
-var APP_VERSION = "v15.5"; // ← change here on every release
+var APP_VERSION = "v15.6"; // ← change here on every release
 // ─────────────────────────────────────────────
 (function(){
     var chip = document.getElementById('verChip');
