@@ -908,7 +908,7 @@ select option:disabled{color:#999!important;font-style:italic;}
 // Scheme:
 //   • Small patch  (bug fix / UI tweak): bump the part after the dot →  v10.9 → v10.10 → v10.11 …
 //   • Big feature  (new module / major change): bump the whole number, drop the dot →  v10.x → v11 → v12 …
-var APP_VERSION = "v15.3"; // ← change here on every release
+var APP_VERSION = "v15.4"; // ← change here on every release
 // ─────────────────────────────────────────────
 (function(){
     var chip = document.getElementById('verChip');
@@ -1087,6 +1087,27 @@ function opAuthLost(why, then){
   _opPaintSignedIn();
   opShowLogin(why, then);
 }
+/* v15.4 — the server said "sign in" while this device holds a sign-in. On a
+   busy Google account that answer is not always true, and believing it threw
+   the sign-in away and sent staff to a sign-in screen that then could not get
+   through either ("Your sign-in has expired", 11 Oct 2026). So ask the cheap
+   checkToken route first (it touches no sheet). Only a clear "refused" signs
+   the device out; "still good" or "no readable answer" keeps the sign-in and
+   calls `stillGood` so the caller can say "busy — try again". */
+function opAuthMaybeLost(why, then, stillGood){
+  var tok = _opStaffToken;
+  if (!tok) { opAuthLost(why, then); return; }
+  _opGasTry(function(){
+    return fetch(SCRIPT_URL, { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({ action:'checkToken', staffToken: tok }), signal: _opSignal(OP_TRY_MS) })
+      .then(function(r){ return r.text(); });
+  }, null, { net: false })
+  .then(function(j){
+    if (tok !== _opStaffToken) return;            // signed out / in again meanwhile
+    if (j && j.ok === false && j.code === 'auth') { opAuthLost(why, then); return; }
+    if (typeof stillGood === 'function') stillGood(j && j.ok ? 'ok' : 'busy');
+  });
+}
 function _opLoginErr(msg){
   var el = document.getElementById('opLoginErr');
   if (!el) return;
@@ -1099,6 +1120,14 @@ function _opLoginErr(msg){
    reply we cannot read is retried; a real answer ("wrong password", "locked")
    is shown at once. */
 var OP_LOGIN_TRIES = 3;
+/* v15.4 — a busy account can also HOLD a request for a minute or more without
+   answering at all (measured 11 Oct 2026: 17 s, 27 s, 31 s+). With no time limit
+   the Sign in button sat on "Signing in…" for ever. Each try now gives up after
+   OP_TRY_MS and counts as one unreadable reply, so the next try starts. */
+var OP_TRY_MS = 30000;
+function _opSignal(ms){
+  try { return AbortSignal.timeout(ms); } catch(e){ return undefined; }
+}
 function _opWait(ms){ return new Promise(function(res){ setTimeout(res, ms); }); }
 /* Runs `fn` (returns a Promise of the reply text) until the text parses as
    JSON. Resolves the parsed reply, or null when every try failed;
@@ -1145,7 +1174,8 @@ function opDoLogin(ev){
       if (btn) btn.textContent = 'Signing in…';
       return _opGasTry(function(){
         return fetch(SCRIPT_URL, { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
-          body: JSON.stringify({ action:'login', username:u.trim(), password:p }) })
+          body: JSON.stringify({ action:'login', username:u.trim(), password:p }),
+          signal: _opSignal(OP_TRY_MS) })
           .then(function(r){ return r.text(); });
       }, retrying, lastErr);
     })
@@ -1193,7 +1223,8 @@ var _opHasLogin = null;
 function _opBackendHasLogin(onRetry, lastErr){
   if (_opHasLogin === true) return Promise.resolve(true);
   return _opGasTry(function(){
-    return fetch(SCRIPT_URL + '?action=ping&t=' + Date.now()).then(function(r){ return r.text(); });
+    return fetch(SCRIPT_URL + '?action=ping&t=' + Date.now(), { signal: _opSignal(OP_TRY_MS) })
+      .then(function(r){ return r.text(); });
   }, onRetry, lastErr || { net: false })
     .then(function(j){
       if (!j) return null;
@@ -1830,9 +1861,22 @@ function stkTry(title, mySeq, attempt) {
     if (mySeq !== STK.seq) return;               // a newer product name is on screen
     if (res && res.code === 'auth') {
       // Not a slow warehouse — a sign-in is needed. Ask once, then look again.
-      opAuthLost(_opStaffToken ? 'Your sign-in has expired. Please sign in again.' : '', function () { stkLookup(true); });
       var b0 = stkEl('stockBody');
-      if (b0) b0.innerHTML = '<span style="opacity:.75;">🔒 Sign in to check the warehouse.</span>';
+      if (!_opStaffToken) {
+        opAuthLost('', function () { stkLookup(true); });
+        if (b0) b0.innerHTML = '<span style="opacity:.75;">🔒 Sign in to check the warehouse.</span>';
+        return;
+      }
+      // v15.4: confirm the sign-in really is gone before asking for it again.
+      if (b0) b0.innerHTML = '<span style="opacity:.75;">Checking your sign-in…</span>';
+      opAuthMaybeLost('Your sign-in has expired. Please sign in again.', function () { stkLookup(true); },
+        function () {
+          if (mySeq !== STK.seq) return;
+          if (attempt < 3) { setTimeout(function () { stkTry(title, mySeq, attempt + 1); }, 1200 * attempt); return; }
+          STK.source = 'error'; STK.choice = null;
+          var hid0 = stkEl('stockId'); if (hid0) hid0.value = '';
+          stkPaint();
+        });
       return;
     }
     if (!res || !res.ok) throw new Error('refused');
@@ -2518,7 +2562,8 @@ function loadTrackerOrders(fresh){
   }
   if(btn){ btn.disabled=true; btn.style.opacity='.6'; }
   fetch(SCRIPT_URL, { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
-    body: JSON.stringify(opAuthBody({ action:'getTrackerOrders', fresh: fresh===true })) })
+    body: JSON.stringify(opAuthBody({ action:'getTrackerOrders', fresh: fresh===true })),
+    signal: _opSignal(OP_TRY_MS * 2) })
     .then(function(r){ return r.json(); })
     .then(function(res){
       if(btn){ btn.disabled=false; btn.style.opacity='1'; }
@@ -2528,8 +2573,15 @@ function loadTrackerOrders(fresh){
         _trkOrders=[]; _trkLoaded=false;
         try{ localStorage.removeItem(OP_LIST_KEY); }catch(e){}
         _renderTrackerOrders();
-        _trkSetStatus('🔒 Sign in to see the pending orders.','info');
-        opAuthLost(_opStaffToken ? 'Your sign-in has expired. Please sign in again.' : '', function(){ loadTrackerOrders(true); });
+        if(!_opStaffToken){
+          _trkSetStatus('🔒 Sign in to see the pending orders.','info');
+          opAuthLost('', function(){ loadTrackerOrders(true); });
+          return;
+        }
+        // v15.4: confirm the sign-in really is gone before asking for it again.
+        _trkSetStatus('⏳ Checking your sign-in…','info');
+        opAuthMaybeLost('Your sign-in has expired. Please sign in again.', function(){ loadTrackerOrders(true); },
+          function(){ _trkSetStatus('⚠️ The server is busy right now. You are still signed in — tap 🔄 Refresh pending orders in a few seconds, or use ✍️ Enter manually.','err'); });
         return;
       }
       if(res && res.ok){
@@ -2895,9 +2947,14 @@ document.getElementById("orderForm").addEventListener("submit", function(e){
     fetch(SCRIPT_URL,{
         method:"POST",
         body:JSON.stringify(data),
-        headers:{"Content-Type":"text/plain;charset=utf-8"}
+        headers:{"Content-Type":"text/plain;charset=utf-8"},
+        signal:_opSignal(OP_SAVE_MS)
     })
-    .then(function(r){ return r.json(); })
+    .then(function(r){ return r.text(); })
+    .then(function(txt){
+        // v15.4: Google's own HTML error page is not an answer from our script.
+        try { return JSON.parse(txt); } catch(e){ throw new Error('unreadable reply'); }
+    })
     .then(function(result){
         document.getElementById("loader").style.display="none";
         document.getElementById("submitBtn").disabled=false;
@@ -2949,18 +3006,74 @@ document.getElementById("orderForm").addEventListener("submit", function(e){
             _trkDropProcessed(data.orderId, data.invoiceNumber);
         } else if(result.code==="auth"){
             // Nothing was written. Keep the form exactly as it is, sign in, save again.
-            opAuthLost(_opStaffToken ? "Your sign-in has expired. Sign in, then press Save again — the form is kept." : "Sign in, then press Save again — the form is kept.", function(){
+            var _afterSignIn = function(){
                 if(typeof fjToast==='function') fjToast('Signed in — now press <b>Save</b> again.', 'ok');
-            });
+            };
+            if(!_opStaffToken){
+                opAuthLost("Sign in, then press Save again — the form is kept.", _afterSignIn);
+            } else {
+                // v15.4: on a busy Google account "sign in" is not always true —
+                // check before throwing this device's sign-in away.
+                if(typeof fjToast==='function') fjToast('Checking your sign-in…', 'info');
+                opAuthMaybeLost("Your sign-in has expired. Sign in, then press Save again — the form is kept.", _afterSignIn,
+                    function(){
+                        alert("NOT SAVED — the server is busy right now.\n\nNo serial number was used. You are still signed in and the form is kept.\n\nWait a few seconds, then press Save again.");
+                    });
+            }
         } else { alert("Error: "+result.message); }
     })
     .catch(function(err){
-        document.getElementById("loader").style.display="none";
-        document.getElementById("submitBtn").disabled=false;
-        alert("Network Error. Check connection and retry.");
         console.error(err);
+        // v15.4: no readable answer. The order may or may not have been written
+        // (Google can run the script and then lose the reply), and there is no
+        // duplicate guard on the server — so LOOK before telling anyone to save
+        // again, or a retry hands out a second serial number for one parcel.
+        var _sub = document.querySelector("#loader .loader-sub");
+        var _subWas = _sub ? _sub.textContent : '';
+        if(_sub) _sub.textContent = "Checking if the order was saved…";
+        _opFindSaved(data.orderId).then(function(found){
+            if(_sub) _sub.textContent = _subWas;
+            document.getElementById("loader").style.display="none";
+            document.getElementById("submitBtn").disabled=false;
+            if(found && found.serial){
+                alert("SAVED.\n\nGoogle was slow to answer, but the order IS in the Google Sheet.\nSerial Number: "+found.serial
+                      +"\n\nDo NOT press Save again.\n\nPACK "+_qtyNow+" UNIT"+(_qtyNow===1?'':'S')+" of:\n"+(data.productName||''));
+                resetForm();
+                _trkDropProcessed(data.orderId, data.invoiceNumber);
+            } else if(found){
+                alert("NOT SAVED — Google did not answer, and this Order ID is not in the Google Sheet.\n\nNo serial number was used. The form is kept — press Save again.");
+            } else {
+                alert("Google did not answer, so we cannot tell whether this order was saved."
+                      +"\n\nBefore pressing Save again, tap 🔄 Refresh pending orders:"
+                      +"\n• if Order ID "+(data.orderId||'(blank)')+" has LEFT the list, it WAS saved — do not save again;"
+                      +"\n• if it is still in the list, press Save again.\n\nThe form is kept.");
+            }
+        });
     });
 });
+
+/* v15.4 — after a save got no readable answer: is this Order ID in the sheet?
+   Resolves {serial} when found, {} when the sheet answered and it is not there,
+   null when that could not be told (no Order ID, or no answer either). */
+var OP_SAVE_MS = 90000;
+function _opFindSaved(orderId){
+  var oid = String(orderId || '').trim();
+  if (!oid || !_opStaffToken) return Promise.resolve(null);
+  return _opGasTry(function(){
+    return fetch(SCRIPT_URL, { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify(opAuthBody({ action:'getAll' })), signal: _opSignal(OP_TRY_MS * 2) })
+      .then(function(r){ return r.text(); });
+  }, null, { net: false })
+  .then(function(j){
+    if (!j || j.status !== 'success' || !Array.isArray(j.orders)) return null;
+    // Only the newest rows: a save made just now is at the bottom, and an old
+    // order with the same ID must not be read as "this one went through".
+    for (var i = j.orders.length - 1; i >= Math.max(0, j.orders.length - 30); i--) {
+      if (String(j.orders[i]['Order ID'] || '').trim() === oid) return { serial: j.orders[i]['Serial Number'] || '?' };
+    }
+    return {};
+  }, function(){ return null; });
+}
 
 function resetForm(){
     document.getElementById("orderForm").reset();
