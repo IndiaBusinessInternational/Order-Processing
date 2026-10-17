@@ -929,7 +929,7 @@ select option:disabled{color:#999!important;font-style:italic;}
 // Scheme:
 //   • Small patch  (bug fix / UI tweak): bump the part after the dot →  v10.9 → v10.10 → v10.11 …
 //   • Big feature  (new module / major change): bump the whole number, drop the dot →  v10.x → v11 → v12 …
-var APP_VERSION = "v15.6"; // ← change here on every release
+var APP_VERSION = "v15.7"; // ← change here on every release
 // ─────────────────────────────────────────────
 (function(){
     var chip = document.getElementById('verChip');
@@ -1125,7 +1125,7 @@ function opAuthMaybeLost(why, then, stillGood){
   }, null, { net: false })
   .then(function(j){
     if (tok !== _opStaffToken) return;            // signed out / in again meanwhile
-    if (j && j.ok === false && j.code === 'auth') { opAuthLost(why, then); return; }
+    if (j && j.ok === false && j.code === 'auth' && ('role' in j)) { opAuthLost(why, then); return; }
     if (typeof stillGood === 'function') stillGood(j && j.ok ? 'ok' : 'busy');
   });
 }
@@ -1150,6 +1150,17 @@ function _opSignal(ms){
   try { return AbortSignal.timeout(ms); } catch(e){ return undefined; }
 }
 function _opWait(ms){ return new Promise(function(res){ setTimeout(res, ms); }); }
+/* v15.7 — measured 17 Oct 2026: when Google is busy it RUNS doPost (the order
+   is written, a serial number is used) and then loses the reply; the browser's
+   follow-up lands on the read route (doGet), whose anonymous answer is
+   {code:'auth', message:'Sign in to IBI Order Processing to see this.'}.
+   That reply says nothing about the POST that was sent — never read it as
+   "sign in" or "not saved". (doPost's own refusals carry different words, and
+   checkToken's carry a 'role' field.) */
+function _opIsReadRouteReply(j){
+  return !!(j && j.code === 'auth' && !('role' in j) &&
+            String(j.message || '').indexOf('to see this') !== -1);
+}
 /* Runs `fn` (returns a Promise of the reply text) until the text parses as
    JSON. Resolves the parsed reply, or null when every try failed;
    `lastErr.net` says whether the last failure was no connection at all. */
@@ -1158,7 +1169,7 @@ function _opGasTry(fn, onRetry, lastErr){
   function go(){
     return fn().then(function(txt){
       var j = null; try { j = JSON.parse(txt); } catch(e){}
-      if (j) return j;
+      if (j && !_opIsReadRouteReply(j)) return j;
       lastErr.net = false;
       return again();
     }, function(){
@@ -2965,6 +2976,42 @@ document.getElementById("orderForm").addEventListener("submit", function(e){
         data.pickupDate = parts[2]+' '+MONTH_NAMES[parseInt(parts[1])-1]+' '+parts[0];
     }
 
+    // v15.7: the loader and the disabled button stay up until we KNOW what
+    // happened — a second press while Google is slow was the third copy of
+    // OD438901141646229100 on 17 Oct 2026 (serials 607573/574/575).
+    function _opSaveDone(){
+        document.getElementById("loader").style.display="none";
+        document.getElementById("submitBtn").disabled=false;
+        document.getElementById("submitBtn").classList.remove("editing");
+        document.getElementById("submitBtn").textContent="Save & Generate Serial No.";
+    }
+    function _opLookFirst(why){
+        // No clear answer from the save. The order may well be in the sheet
+        // already, so LOOK before telling anyone anything.
+        var _sub = document.querySelector("#loader .loader-sub");
+        var _subWas = _sub ? _sub.textContent : '';
+        if(_sub) _sub.textContent = "Checking if the order was saved…";
+        _opFindSavedTwice(data).then(function(found){
+            if(_sub) _sub.textContent = _subWas;
+            _opSaveDone();
+            if(found && found.serial){
+                alert("SAVED.\n\nGoogle was slow to answer, but the order IS in the Google Sheet.\nSerial Number: "+found.serial
+                      +"\n\nDo NOT press Save again.\n\nPACK "+_qtyNow+" UNIT"+(_qtyNow===1?'':'S')+" of:\n"+(data.productName||''));
+                resetForm();
+                _trkDropProcessed(data.orderId, data.invoiceNumber);
+            } else if(found){
+                alert("NOT SAVED — Google did not answer, and this order is not in the Google Sheet."
+                      +(why ? "\n("+why+")" : "")
+                      +"\n\nNo serial number was used. The form is kept — press Save again.");
+            } else {
+                alert("Google did not answer, so we cannot tell whether this order was saved."
+                      +"\n\nBefore pressing Save again, tap 🔄 Refresh pending orders:"
+                      +"\n• if Order ID "+(data.orderId||'(blank)')+" has LEFT the list, it WAS saved — do not save again;"
+                      +"\n• if it is still in the list, press Save again.\n\nThe form is kept.");
+            }
+        });
+    }
+
     fetch(SCRIPT_URL,{
         method:"POST",
         body:JSON.stringify(data),
@@ -2977,10 +3024,14 @@ document.getElementById("orderForm").addEventListener("submit", function(e){
         try { return JSON.parse(txt); } catch(e){ throw new Error('unreadable reply'); }
     })
     .then(function(result){
-        document.getElementById("loader").style.display="none";
-        document.getElementById("submitBtn").disabled=false;
-        document.getElementById("submitBtn").classList.remove("editing");
-        document.getElementById("submitBtn").textContent="Save & Generate Serial No.";
+        var _definiteRefusal = result.code==="auth" && String(result.message||'').indexOf('This order was NOT saved') !== -1;
+        if(result.status!=="success" && !_definiteRefusal){
+            // v15.7: not an answer from the save itself (e.g. the read route's
+            // "sign in", a lost reply) — the order may be saved. Look first.
+            _opLookFirst(result.message || '');
+            return;
+        }
+        _opSaveDone();
         if(result.status==="success"){
             // What the warehouse did with it. Stated on the same screen as the
             // serial number, because a packer who is told the count moved will
@@ -3026,7 +3077,8 @@ document.getElementById("orderForm").addEventListener("submit", function(e){
             resetForm();
             _trkDropProcessed(data.orderId, data.invoiceNumber);
         } else if(result.code==="auth"){
-            // Nothing was written. Keep the form exactly as it is, sign in, save again.
+            // doPost itself refused (its own words) — nothing was written.
+            // Keep the form exactly as it is, sign in, save again.
             var _afterSignIn = function(){
                 if(typeof fjToast==='function') fjToast('Signed in — now press <b>Save</b> again.', 'ok');
             };
@@ -3049,27 +3101,8 @@ document.getElementById("orderForm").addEventListener("submit", function(e){
         // (Google can run the script and then lose the reply), and there is no
         // duplicate guard on the server — so LOOK before telling anyone to save
         // again, or a retry hands out a second serial number for one parcel.
-        var _sub = document.querySelector("#loader .loader-sub");
-        var _subWas = _sub ? _sub.textContent : '';
-        if(_sub) _sub.textContent = "Checking if the order was saved…";
-        _opFindSaved(data.orderId).then(function(found){
-            if(_sub) _sub.textContent = _subWas;
-            document.getElementById("loader").style.display="none";
-            document.getElementById("submitBtn").disabled=false;
-            if(found && found.serial){
-                alert("SAVED.\n\nGoogle was slow to answer, but the order IS in the Google Sheet.\nSerial Number: "+found.serial
-                      +"\n\nDo NOT press Save again.\n\nPACK "+_qtyNow+" UNIT"+(_qtyNow===1?'':'S')+" of:\n"+(data.productName||''));
-                resetForm();
-                _trkDropProcessed(data.orderId, data.invoiceNumber);
-            } else if(found){
-                alert("NOT SAVED — Google did not answer, and this Order ID is not in the Google Sheet.\n\nNo serial number was used. The form is kept — press Save again.");
-            } else {
-                alert("Google did not answer, so we cannot tell whether this order was saved."
-                      +"\n\nBefore pressing Save again, tap 🔄 Refresh pending orders:"
-                      +"\n• if Order ID "+(data.orderId||'(blank)')+" has LEFT the list, it WAS saved — do not save again;"
-                      +"\n• if it is still in the list, press Save again.\n\nThe form is kept.");
-            }
-        });
+        _opLookFirst('');
+        return;
     });
 });
 
@@ -3077,9 +3110,20 @@ document.getElementById("orderForm").addEventListener("submit", function(e){
    Resolves {serial} when found, {} when the sheet answered and it is not there,
    null when that could not be told (no Order ID, or no answer either). */
 var OP_SAVE_MS = 90000;
-function _opFindSaved(orderId){
-  var oid = String(orderId || '').trim();
-  if (!oid || !_opStaffToken) return Promise.resolve(null);
+/* v15.7 — look twice: Google can still be writing the row when the first look
+   runs. {serial} found / {} not there (both looks) / null cannot tell. */
+function _opFindSavedTwice(data){
+  return _opWait(3000).then(function(){ return _opFindSaved(data); }).then(function(f){
+    if (!f || f.serial) return f;
+    return _opWait(8000).then(function(){ return _opFindSaved(data); });
+  });
+}
+function _opFindSaved(data){
+  if (typeof data !== 'object' || !data) data = { orderId: data };
+  var oid = String(data.orderId || '').trim();
+  var pn  = String(data.productName || '').trim().toLowerCase();
+  var bn  = String(data.buyerName || '').trim().toLowerCase();
+  if ((!oid && !(pn && bn)) || !_opStaffToken) return Promise.resolve(null);
   return _opGasTry(function(){
     return fetch(SCRIPT_URL, { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
       body: JSON.stringify(opAuthBody({ action:'getAll' })), signal: _opSignal(OP_TRY_MS * 2) })
@@ -3090,7 +3134,12 @@ function _opFindSaved(orderId){
     // Only the newest rows: a save made just now is at the bottom, and an old
     // order with the same ID must not be read as "this one went through".
     for (var i = j.orders.length - 1; i >= Math.max(0, j.orders.length - 30); i--) {
-      if (String(j.orders[i]['Order ID'] || '').trim() === oid) return { serial: j.orders[i]['Serial Number'] || '?' };
+      var row = j.orders[i];
+      var hit = oid
+        ? String(row['Order ID'] || '').trim() === oid
+        : (String(row['Product Name'] || '').trim().toLowerCase() === pn &&
+           String(row['Name of Buyer'] || '').trim().toLowerCase() === bn);
+      if (hit) return { serial: row['Serial Number'] || '?' };
     }
     return {};
   }, function(){ return null; });
