@@ -929,7 +929,7 @@ select option:disabled{color:#999!important;font-style:italic;}
 // Scheme:
 //   • Small patch  (bug fix / UI tweak): bump the part after the dot →  v10.9 → v10.10 → v10.11 …
 //   • Big feature  (new module / major change): bump the whole number, drop the dot →  v10.x → v11 → v12 …
-var APP_VERSION = "v15.7"; // ← change here on every release
+var APP_VERSION = "v15.8"; // ← change here on every release
 // ─────────────────────────────────────────────
 (function(){
     var chip = document.getElementById('verChip');
@@ -1157,6 +1157,28 @@ function _opWait(ms){ return new Promise(function(res){ setTimeout(res, ms); });
    That reply says nothing about the POST that was sent — never read it as
    "sign in" or "not saved". (doPost's own refusals carry different words, and
    checkToken's carry a 'role' field.) */
+/* v15.8 — GAS v15.8+ writes a save ONCE however many times it arrives (same
+   Submit ID, or same Order ID + product within 30 min → the first serial comes
+   back with duplicate:true). Only then may the page re-send a save by itself. */
+var _opIdem = null;
+(function(){
+  try {
+    fetch(SCRIPT_URL + '?action=ping&t=' + Date.now(), { signal: _opSignal(OP_TRY_MS) })
+      .then(function(r){ return r.json(); })
+      .then(function(j){ if (j && Array.isArray(j.features)) _opIdem = j.features.indexOf('idem') !== -1; })
+      .catch(function(){});
+  } catch(e){}
+})();
+/* One id per order on the form, kept across every retry of its save. A new
+   order (different Order ID, or product + buyer when there is none) gets a new id. */
+var _opSubmit = { key: '', id: '' };
+function _opSubmitIdFor(d){
+  var key = String(d.orderId || '').trim() || (String(d.productName || '').trim() + '|' + String(d.buyerName || '').trim());
+  if (!_opSubmit.id || _opSubmit.key !== key) {
+    _opSubmit = { key: key, id: 'S' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8) };
+  }
+  return _opSubmit.id;
+}
 function _opIsReadRouteReply(j){
   return !!(j && j.code === 'auth' && !('role' in j) &&
             String(j.message || '').indexOf('to see this') !== -1);
@@ -1261,6 +1283,7 @@ function _opBackendHasLogin(onRetry, lastErr){
     .then(function(j){
       if (!j) return null;
       _opHasLogin = !!(Array.isArray(j.features) && j.features.indexOf('login') !== -1);
+      _opIdem = !!(Array.isArray(j.features) && j.features.indexOf('idem') !== -1);
       if (j.version) _opBackendVer = j.version;
       return _opHasLogin;
     });
@@ -2970,6 +2993,7 @@ document.getElementById("orderForm").addEventListener("submit", function(e){
     data.serialStart   = SERIAL_START;
     data.sheetHeaders  = SHEET_HEADERS;
     data.action        = "submitOrder";
+    data.submitId      = _opSubmitIdFor(data);   // v15.8: same id on every retry
     opAuthBody(data);               // v15.0: the staff sign-in rides in the body
     if(data.pickupDate){
         var parts = data.pickupDate.split('-');
@@ -2992,13 +3016,23 @@ document.getElementById("orderForm").addEventListener("submit", function(e){
         var _subWas = _sub ? _sub.textContent : '';
         if(_sub) _sub.textContent = "Checking if the order was saved…";
         _opFindSavedTwice(data).then(function(found){
-            if(_sub) _sub.textContent = _subWas;
-            _opSaveDone();
+            if(_sub) _sub.textContent = "Generating Serial Number...";
+            if(found && !found.serial && _opIdem === true && _opSendNo < 3){
+                // fall through to the re-send branch below with the loader still up
+            } else {
+                _opSaveDone();
+            }
             if(found && found.serial){
                 alert("SAVED.\n\nGoogle was slow to answer, but the order IS in the Google Sheet.\nSerial Number: "+found.serial
                       +"\n\nDo NOT press Save again.\n\nPACK "+_qtyNow+" UNIT"+(_qtyNow===1?'':'S')+" of:\n"+(data.productName||''));
                 resetForm();
                 _trkDropProcessed(data.orderId, data.invoiceNumber);
+            } else if(found && _opIdem === true && _opSendNo < 3){
+                // v15.8: safe to send again — the server writes it only once.
+                document.getElementById("loader").style.display="flex";
+                document.getElementById("submitBtn").disabled=true;
+                if(_sub) _sub.textContent = "Server busy — sending again ("+(_opSendNo+1)+" of 3)…";
+                _opSend();
             } else if(found){
                 alert("NOT SAVED — Google did not answer, and this order is not in the Google Sheet."
                       +(why ? "\n("+why+")" : "")
@@ -3012,6 +3046,9 @@ document.getElementById("orderForm").addEventListener("submit", function(e){
         });
     }
 
+    var _opSendNo = 0;
+    function _opSend(){
+    _opSendNo++;
     fetch(SCRIPT_URL,{
         method:"POST",
         body:JSON.stringify(data),
@@ -3024,15 +3061,22 @@ document.getElementById("orderForm").addEventListener("submit", function(e){
         try { return JSON.parse(txt); } catch(e){ throw new Error('unreadable reply'); }
     })
     .then(function(result){
-        var _definiteRefusal = result.code==="auth" && String(result.message||'').indexOf('This order was NOT saved') !== -1;
+        var _definiteRefusal = (result.code==="auth" && String(result.message||'').indexOf('This order was NOT saved') !== -1)
+                            || (result.code==="busy" && String(result.message||'').indexOf('NOT saved') !== -1);
         if(result.status!=="success" && !_definiteRefusal){
             // v15.7: not an answer from the save itself (e.g. the read route's
             // "sign in", a lost reply) — the order may be saved. Look first.
-            _opLookFirst(result.message || '');
+            _opLookFirst('');
             return;
         }
         _opSaveDone();
-        if(result.status==="success"){
+        if(result.status==="success" && result.duplicate){
+            // v15.8: the server already had this save — nothing new was written.
+            alert("ALREADY SAVED.\n\nThis order was saved earlier"+(result.savedAt ? " ("+result.savedAt+")" : "")+".\nSerial Number: "+result.serialNumber
+                  +"\n\nNothing new was written and stock was NOT deducted again.\n\nPACK "+_qtyNow+" UNIT"+(_qtyNow===1?'':'S')+" of:\n"+(data.productName||''));
+            resetForm();
+            _trkDropProcessed(data.orderId, data.invoiceNumber);
+        } else if(result.status==="success"){
             // What the warehouse did with it. Stated on the same screen as the
             // serial number, because a packer who is told the count moved will
             // notice the day it stops moving.
@@ -3093,6 +3137,8 @@ document.getElementById("orderForm").addEventListener("submit", function(e){
                         alert("NOT SAVED — the server is busy right now.\n\nNo serial number was used. You are still signed in and the form is kept.\n\nWait a few seconds, then press Save again.");
                     });
             }
+        } else if(result.code==="busy"){
+            alert("NOT SAVED — "+String(result.message||'the server is busy.').replace(/^The server is busy — this order was NOT saved\. ?/,'the server is busy. ')+"\n\nNo serial number was used. The form is kept.");
         } else { alert("Error: "+result.message); }
     })
     .catch(function(err){
@@ -3102,8 +3148,9 @@ document.getElementById("orderForm").addEventListener("submit", function(e){
         // duplicate guard on the server — so LOOK before telling anyone to save
         // again, or a retry hands out a second serial number for one parcel.
         _opLookFirst('');
-        return;
     });
+    }
+    _opSend();
 });
 
 /* v15.4 — after a save got no readable answer: is this Order ID in the sheet?
@@ -3147,6 +3194,7 @@ function _opFindSaved(data){
 
 function resetForm(){
     document.getElementById("orderForm").reset();
+    _opSubmit = { key: '', id: '' };   // v15.8: the next order gets its own Submit ID
     var sq=document.getElementById('saleQty'); if(sq) sq.value=1;
     _opSrcQty=null; _opShowQtyNotice(1);
     // The stock choice belongs to the order just saved — carrying it into the
