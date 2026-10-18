@@ -929,7 +929,7 @@ select option:disabled{color:#999!important;font-style:italic;}
 // Scheme:
 //   • Small patch  (bug fix / UI tweak): bump the part after the dot →  v10.9 → v10.10 → v10.11 …
 //   • Big feature  (new module / major change): bump the whole number, drop the dot →  v10.x → v11 → v12 …
-var APP_VERSION = "v15.8"; // ← change here on every release
+var APP_VERSION = "v15.9"; // ← change here on every release
 // ─────────────────────────────────────────────
 (function(){
     var chip = document.getElementById('verChip');
@@ -1171,6 +1171,18 @@ var _opIdem = null;
 })();
 /* One id per order on the form, kept across every retry of its save. A new
    order (different Order ID, or product + buyer when there is none) gets a new id. */
+/* v15.9 — resolves true/false; asks the server again (3 tries) if the
+   page-load ping never got an answer. */
+function _opEnsureIdem(){
+  if (_opIdem !== null) return Promise.resolve(_opIdem);
+  return _opGasTry(function(){
+    return fetch(SCRIPT_URL + '?action=ping&t=' + Date.now(), { signal: _opSignal(OP_TRY_MS) })
+      .then(function(r){ return r.text(); });
+  }, null, { net: false }).then(function(j){
+    if (j && Array.isArray(j.features)) _opIdem = j.features.indexOf('idem') !== -1;
+    return _opIdem === true;
+  });
+}
 var _opSubmit = { key: '', id: '' };
 function _opSubmitIdFor(d){
   var key = String(d.orderId || '').trim() || (String(d.productName || '').trim() + '|' + String(d.buyerName || '').trim());
@@ -3004,12 +3016,31 @@ document.getElementById("orderForm").addEventListener("submit", function(e){
     // happened — a second press while Google is slow was the third copy of
     // OD438901141646229100 on 17 Oct 2026 (serials 607573/574/575).
     function _opSaveDone(){
+        var _subD = document.querySelector("#loader .loader-sub");
+        if(_subD) _subD.textContent = "Generating Serial Number...";
         document.getElementById("loader").style.display="none";
         document.getElementById("submitBtn").disabled=false;
         document.getElementById("submitBtn").classList.remove("editing");
         document.getElementById("submitBtn").textContent="Save & Generate Serial No.";
     }
     function _opLookFirst(why){
+        // v15.9 — the server (GAS v15.8+) writes one save ONCE however often it
+        // arrives, so an unclear reply is simply sent again with the same Submit
+        // ID: the answer is the serial either way. Staff see "still saving", not
+        // a question (18 Oct 2026: the "cannot tell" pop-up made staff doubt the app).
+        var _subQ = document.querySelector("#loader .loader-sub");
+        _opEnsureIdem().then(function(idem){
+            if(!idem){ _opLookFirstOld(why); return; }
+            if(_opSendNo < OP_SAVE_TRIES){
+                if(_subQ) _subQ.textContent = "Google is slow — still saving ("+(_opSendNo+1)+" of "+OP_SAVE_TRIES+")…";
+                setTimeout(_opSend, 1500 * _opSendNo);
+                return;
+            }
+            _opSaveDone();
+            alert("Google is not answering right now.\n\nWait one minute, then press Save again.\n\nThis is safe — the server never saves the same order twice. The form is kept.");
+        });
+    }
+    function _opLookFirstOld(why){
         // No clear answer from the save. The order may well be in the sheet
         // already, so LOOK before telling anyone anything.
         var _sub = document.querySelector("#loader .loader-sub");
@@ -3070,6 +3101,11 @@ document.getElementById("orderForm").addEventListener("submit", function(e){
             return;
         }
         _opSaveDone();
+        if(result.status==="success" && result.duplicate && result.matchedOn==="submitId"){
+            // v15.9: the first send was written; only its reply was lost.
+            result.duplicate = false;
+            result.stock = { attempted: false, resent: true };
+        }
         if(result.status==="success" && result.duplicate){
             // v15.8: the server already had this save — nothing new was written.
             alert("ALREADY SAVED.\n\nThis order was saved earlier"+(result.savedAt ? " ("+result.savedAt+")" : "")+".\nSerial Number: "+result.serialNumber
@@ -3096,6 +3132,8 @@ document.getElementById("orderForm").addEventListener("submit", function(e){
                 _stkLine = "\n\nSTOCK: "+_stk.result.product
                          +"\n  "+_stk.result.before+" → "+_stk.result.after
                          +(_stk.result.short ? "  ⚠ SHORT BY "+_stk.result.short : "");
+            } else if(_stk.resent){
+                _stkLine = "\n\nSTOCK: updated when the order was first saved.";
             } else if(_stk.attempted && _stk.reason==='unmapped'){
                 _stkLine = "\n\nSTOCK: not deducted — this listing is not linked to a stock item yet.";
             } else if(_stk.attempted && !_stk.ok){
@@ -3156,7 +3194,8 @@ document.getElementById("orderForm").addEventListener("submit", function(e){
 /* v15.4 — after a save got no readable answer: is this Order ID in the sheet?
    Resolves {serial} when found, {} when the sheet answered and it is not there,
    null when that could not be told (no Order ID, or no answer either). */
-var OP_SAVE_MS = 90000;
+var OP_SAVE_MS = 45000;
+var OP_SAVE_TRIES = 5;   // v15.9: sends of one save while the server stays duplicate-proof
 /* v15.7 — look twice: Google can still be writing the row when the first look
    runs. {serial} found / {} not there (both looks) / null cannot tell. */
 function _opFindSavedTwice(data){
