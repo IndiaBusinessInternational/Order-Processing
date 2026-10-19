@@ -734,7 +734,7 @@ button,.btn,select,input,[role="button"]{overflow-wrap:normal}
             <option value="Amazon ATS" id="opt-ats">Amazon ATS</option>
             <option value="eKart"      id="opt-ekart">eKart</option>
             <option value="Delhivery"  id="opt-delhivery">Delhivery</option>
-            <option value="Bazaar Shipping" id="opt-bazaar">Bazaar Shipping</option>
+            <option value="Bazaar.in Shipping" id="opt-bazaarin">Bazaar.in Shipping</option>
             <option value="JioMart Logistics" id="opt-jiomart">JioMart Logistics</option>
           </select>
         </div>
@@ -950,7 +950,7 @@ button,.btn,select,input,[role="button"]{overflow-wrap:normal}
 // Scheme:
 //   • Small patch  (bug fix / UI tweak): bump the part after the dot →  v10.9 → v10.10 → v10.11 …
 //   • Big feature  (new module / major change): bump the whole number, drop the dot →  v10.x → v11 → v12 …
-var APP_VERSION = "v15.11"; // ← change here on every release
+var APP_VERSION = "v15.12"; // ← change here on every release
 // ─────────────────────────────────────────────
 (function(){
     var chip = document.getElementById('verChip');
@@ -2471,8 +2471,9 @@ var COURIER_RULES = {
     'ShopClues':    { allow:'Delhivery',  hint:'Locked: ShopClues → Delhivery only' },
     'Meesho':       { allow:'Delhivery',  hint:'Locked: Meesho → Delhivery only' },
     // v15.10: Bazaar.in (bazaar.in, registered 19 Oct 2026). Its courier is not known yet,
-    // so Bazaar Shipping is pre-set but NOT locked — staff change it to what the label says.
-    'Bazaar.in':    { allow:null, pick:'Bazaar Shipping', hint:'Bazaar.in → Bazaar Shipping (change it if the label names another courier)' },
+    // so Bazaar.in Shipping is pre-set but NOT locked — staff change it to what the label says.
+    // v15.12 (Founder rule): never a bare "Bazaar" — Amazon Bazaar and Bazaar.in are different.
+    'Bazaar.in':    { allow:null, pick:'Bazaar.in Shipping', hint:'Bazaar.in → Bazaar.in Shipping (change it if the label names another courier)' },
     // v15.11: JioMart (vendor UEO898, account awaiting approval 19 Oct 2026) — same pattern.
     'JioMart':      { allow:null, pick:'JioMart Logistics', hint:'JioMart → JioMart Logistics (change it if the label names another courier)' },
     'IBI Website':  { allow:'Delhivery',  hint:'Locked: IBI Website → Delhivery only' },
