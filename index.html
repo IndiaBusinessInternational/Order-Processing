@@ -709,6 +709,7 @@ button,.btn,select,input,[role="button"]{overflow-wrap:normal}
             <option>ShopClues</option>
             <option>Meesho</option>
             <option>Bazaar.in</option>
+            <option>JioMart</option>
             <option>IBI Website</option>
             <option>Offline</option>
           </select>
@@ -734,6 +735,7 @@ button,.btn,select,input,[role="button"]{overflow-wrap:normal}
             <option value="eKart"      id="opt-ekart">eKart</option>
             <option value="Delhivery"  id="opt-delhivery">Delhivery</option>
             <option value="Bazaar Shipping" id="opt-bazaar">Bazaar Shipping</option>
+            <option value="JioMart Logistics" id="opt-jiomart">JioMart Logistics</option>
           </select>
         </div>
         <div class="courier-hint" id="courierHint"></div>
@@ -948,7 +950,7 @@ button,.btn,select,input,[role="button"]{overflow-wrap:normal}
 // Scheme:
 //   • Small patch  (bug fix / UI tweak): bump the part after the dot →  v10.9 → v10.10 → v10.11 …
 //   • Big feature  (new module / major change): bump the whole number, drop the dot →  v10.x → v11 → v12 …
-var APP_VERSION = "v15.10"; // ← change here on every release
+var APP_VERSION = "v15.11"; // ← change here on every release
 // ─────────────────────────────────────────────
 (function(){
     var chip = document.getElementById('verChip');
@@ -2471,13 +2473,15 @@ var COURIER_RULES = {
     // v15.10: Bazaar.in (bazaar.in, registered 19 Oct 2026). Its courier is not known yet,
     // so Bazaar Shipping is pre-set but NOT locked — staff change it to what the label says.
     'Bazaar.in':    { allow:null, pick:'Bazaar Shipping', hint:'Bazaar.in → Bazaar Shipping (change it if the label names another courier)' },
+    // v15.11: JioMart (vendor UEO898, account awaiting approval 19 Oct 2026) — same pattern.
+    'JioMart':      { allow:null, pick:'JioMart Logistics', hint:'JioMart → JioMart Logistics (change it if the label names another courier)' },
     'IBI Website':  { allow:'Delhivery',  hint:'Locked: IBI Website → Delhivery only' },
     'Offline':      { allow:'Delhivery',  hint:'Locked: Offline → Delhivery only' }
 };
 /* v15.10: platforms whose orders are NOT in the Package Tracker yet (no label reader),
    so staff enter them by hand — the Order ID is then the only link to the ERP and to
    the duplicate guard, so it becomes required. Same box, relabelled: one input per fact. */
-var OP_MANUAL_ID_PLATFORMS = { 'Bazaar.in': 'Bazaar.in Order ID' };
+var OP_MANUAL_ID_PLATFORMS = { 'Bazaar.in': 'Bazaar.in Order ID', 'JioMart': 'JioMart Order ID' };
 var OP_OID_LABEL_HTML = null, OP_OID_PH = null;
 function _opOrderIdForPlatform(platform){
     var lbl = document.getElementById('orderIdLabel'), inp = document.getElementById('orderIdInput');
