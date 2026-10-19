@@ -562,6 +562,23 @@ select option:disabled{color:#999!important;font-style:italic;}
   #opLogin .op-login-card{max-width:none;border-radius:0;border-left:0;border-right:0;box-shadow:none;padding-left:10px;padding-right:10px;}
   button,.btn,select,input,[role="button"]{overflow-wrap:normal}
 }
+/* v15.10 (Founder 19 Oct 2026; CEO rule 15 Oct: "edge to edge … all web apps") — the same
+   edge-to-edge spacing on EVERY screen, laptops included: no centred 600px column, full-bleed
+   cards, 10px inner padding. Wide screens use the width with two columns of cards instead of
+   stretching one. Phone-only stacking rules stay in the 640px block above. */
+html,body{overflow-x:clip;}
+.wrap,.hist-section{max-width:none;padding-left:0;padding-right:0;}
+.wrap{padding-top:8px;}
+.card,.hist-card-wrap{border-radius:0;border-left:0;border-right:0;box-shadow:none;margin-bottom:8px;overflow-wrap:break-word;}
+.card-title,.history-header{padding-left:10px;padding-right:10px;}
+.card-body{padding-left:10px;padding-right:10px;}
+#historyList{padding-left:10px;padding-right:10px;}
+.submit-zone{padding-left:10px;padding-right:10px;}
+button,.btn,select,input,[role="button"]{overflow-wrap:normal}
+@media(min-width:1000px){
+  #orderForm{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:8px;align-items:start;}
+  #orderForm > .card:first-of-type{grid-column:1/-1;}
+}
 
 /* ── STAFF SIGN-IN (v15.0) ── */
 .op-signout{
@@ -691,6 +708,7 @@ select option:disabled{color:#999!important;font-style:italic;}
             <option>Shopsy</option>
             <option>ShopClues</option>
             <option>Meesho</option>
+            <option>Bazaar.in</option>
             <option>IBI Website</option>
             <option>Offline</option>
           </select>
@@ -698,7 +716,7 @@ select option:disabled{color:#999!important;font-style:italic;}
       </div>
 
       <div class="form-group">
-        <label>Order ID <span class="sub">— marketplace Order ID; links this entry to the ERP</span></label>
+        <label for="orderIdInput" id="orderIdLabel">Order ID <span class="sub">— marketplace Order ID; links this entry to the ERP</span></label>
         <input type="text" name="orderId" id="orderIdInput" placeholder="e.g. OD3377…, 408-1234567-1234567, Meesho sub-order" autocomplete="off">
       </div>
 
@@ -715,6 +733,7 @@ select option:disabled{color:#999!important;font-style:italic;}
             <option value="Amazon ATS" id="opt-ats">Amazon ATS</option>
             <option value="eKart"      id="opt-ekart">eKart</option>
             <option value="Delhivery"  id="opt-delhivery">Delhivery</option>
+            <option value="Bazaar Shipping" id="opt-bazaar">Bazaar Shipping</option>
           </select>
         </div>
         <div class="courier-hint" id="courierHint"></div>
@@ -929,7 +948,7 @@ select option:disabled{color:#999!important;font-style:italic;}
 // Scheme:
 //   • Small patch  (bug fix / UI tweak): bump the part after the dot →  v10.9 → v10.10 → v10.11 …
 //   • Big feature  (new module / major change): bump the whole number, drop the dot →  v10.x → v11 → v12 …
-var APP_VERSION = "v15.9"; // ← change here on every release
+var APP_VERSION = "v15.10"; // ← change here on every release
 // ─────────────────────────────────────────────
 (function(){
     var chip = document.getElementById('verChip');
@@ -2449,19 +2468,39 @@ var COURIER_RULES = {
     'Shopsy':       { allow:'eKart',      hint:'Locked: Shopsy → eKart only' },
     'ShopClues':    { allow:'Delhivery',  hint:'Locked: ShopClues → Delhivery only' },
     'Meesho':       { allow:'Delhivery',  hint:'Locked: Meesho → Delhivery only' },
+    // v15.10: Bazaar.in (bazaar.in, registered 19 Oct 2026). Its courier is not known yet,
+    // so Bazaar Shipping is pre-set but NOT locked — staff change it to what the label says.
+    'Bazaar.in':    { allow:null, pick:'Bazaar Shipping', hint:'Bazaar.in → Bazaar Shipping (change it if the label names another courier)' },
     'IBI Website':  { allow:'Delhivery',  hint:'Locked: IBI Website → Delhivery only' },
     'Offline':      { allow:'Delhivery',  hint:'Locked: Offline → Delhivery only' }
 };
+/* v15.10: platforms whose orders are NOT in the Package Tracker yet (no label reader),
+   so staff enter them by hand — the Order ID is then the only link to the ERP and to
+   the duplicate guard, so it becomes required. Same box, relabelled: one input per fact. */
+var OP_MANUAL_ID_PLATFORMS = { 'Bazaar.in': 'Bazaar.in Order ID' };
+var OP_OID_LABEL_HTML = null, OP_OID_PH = null;
+function _opOrderIdForPlatform(platform){
+    var lbl = document.getElementById('orderIdLabel'), inp = document.getElementById('orderIdInput');
+    if(!lbl || !inp) return;
+    if(OP_OID_LABEL_HTML === null){ OP_OID_LABEL_HTML = lbl.innerHTML; OP_OID_PH = inp.placeholder; }
+    var name = OP_MANUAL_ID_PLATFORMS[platform];
+    inp.required = !!name;
+    if(name){
+        lbl.innerHTML = name + ' <span class="sub">— required: copy it from the seller panel</span>';
+        inp.placeholder = 'Paste the ' + name;
+    } else { lbl.innerHTML = OP_OID_LABEL_HTML; inp.placeholder = OP_OID_PH; }
+}
 function onPlatformChange(platform){
     var cs   = document.getElementById('courierSelect');
     var hint = document.getElementById('courierHint');
     var rule = COURIER_RULES[platform];
+    _opOrderIdForPlatform(platform);
     if(!rule) return;
     var opts = cs.options;
     for(var i=1; i<opts.length; i++){
         opts[i].disabled = (rule.allow !== null) && (opts[i].value !== rule.allow);
     }
-    if(rule.allow){ cs.value = rule.allow; } else { cs.selectedIndex = 0; }
+    if(rule.allow){ cs.value = rule.allow; } else if(rule.pick){ cs.value = rule.pick; } else { cs.selectedIndex = 0; }
     hint.textContent   = rule.hint;
     hint.style.display = 'block';
 }
@@ -3248,6 +3287,7 @@ function resetForm(){
     var cs=document.getElementById('courierSelect');
     for(var i=0;i<cs.options.length;i++) cs.options[i].disabled=false;
     document.getElementById('courierHint').style.display='none';
+    _opOrderIdForPlatform('');   // v15.10: a Bazaar.in order's required ID must not stick to the next order
     document.getElementById('shipmentDisplay').innerHTML='<span style="color:var(--text-muted);font-style:italic;font-size:13px;font-weight:400;text-transform:none;letter-spacing:0;">Enter Location/City &amp; State above to auto-fill</span>';
     document.getElementById('shipmentTo').value='';
     document.getElementById('shipmentDisplay').style.borderColor='';
