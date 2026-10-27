@@ -619,6 +619,8 @@ button,.btn,select,input,[role="button"]{overflow-wrap:normal}
 #opLoginErr{display:none;font-size:14px;line-height:1.4;margin:0 0 14px;padding:10px 12px;border-radius:8px;
   background:rgba(239,68,68,0.12);border-left:3px solid #ef4444;color:var(--text);}
 #opLogin .op-login-foot{font-size:12px;opacity:.7;margin-top:14px;text-align:center;}
+/* v15.14: the top bar is always black, so the Share icon is cyan like the rest of the bar */
+.topbar-right ibi-share-button{color:var(--cyan)!important}
 </style>
 <script src="ibi-share.js" defer data-slot=".topbar-right"></script>
 </head>
@@ -952,7 +954,7 @@ button,.btn,select,input,[role="button"]{overflow-wrap:normal}
 // Scheme:
 //   • Small patch  (bug fix / UI tweak): bump the part after the dot →  v10.9 → v10.10 → v10.11 …
 //   • Big feature  (new module / major change): bump the whole number, drop the dot →  v10.x → v11 → v12 …
-var APP_VERSION = "v15.13"; // ← change here on every release
+var APP_VERSION = "v15.14"; // ← change here on every release
 // ─────────────────────────────────────────────
 (function(){
     var chip = document.getElementById('verChip');

@@ -1,4 +1,6 @@
-# Order-Processing v15.13
+# Order-Processing v15.14
+
+v15.14 (27 Oct 2026): Share icon in the top bar is cyan (it was dark on the black bar).
 
 v15.13 (27 Oct 2026): WhatsApp link preview uses a 1200x630 JPEG banner (og-banner.jpg, image/jpeg); new "Share this app" button in the top bar.
 
