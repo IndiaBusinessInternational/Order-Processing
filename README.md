@@ -1,4 +1,6 @@
-# Order-Processing v15.12
+# Order-Processing v15.13
+
+v15.13 (27 Oct 2026): WhatsApp link preview uses a 1200x630 JPEG banner (og-banner.jpg, image/jpeg); new "Share this app" button in the top bar.
 
 v15.12 (19 Oct 2026): courier option renamed "Bazaar.in Shipping" (never a bare "Bazaar": Amazon Bazaar and Bazaar.in are different).
 
