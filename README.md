@@ -1,4 +1,6 @@
-# Order-Processing v15.14
+# Order-Processing v15.16
+
+v15.16 (6 Nov 2026): IBI Website orders can record ST Courier (pre-set, not locked) and need their Order ID. JioMart pre-sets Delhivery, as on its first real label; staff change it if the label names another courier.
 
 v15.14 (27 Oct 2026): Share icon in the top bar is cyan (it was dark on the black bar).
 
