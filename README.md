@@ -1,4 +1,7 @@
-# Order-Processing v15.16
+# Order-Processing v15.17
+
+v15.17 (6 Nov 2026): JioMart Logistics removed from the courier list. JioMart orders go by Delhivery (Founder).
+
 
 v15.16 (6 Nov 2026): IBI Website orders can record ST Courier (pre-set, not locked) and need their Order ID. JioMart pre-sets Delhivery, as on its first real label; staff change it if the label names another courier.
 
