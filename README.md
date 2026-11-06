@@ -1,4 +1,7 @@
-# Order-Processing v15.17
+# Order-Processing v15.18
+
+v15.18 (6 Nov 2026): MyStore.in and IndiaMart added; the courier is chosen from the label, the Order ID is required.
+
 
 v15.17 (6 Nov 2026): JioMart Logistics removed from the courier list. JioMart orders go by Delhivery (Founder).
 

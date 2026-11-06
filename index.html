@@ -715,6 +715,8 @@ button,.btn,select,input,[role="button"]{overflow-wrap:normal}
             <option>Bazaar.in</option>
             <option>JioMart</option>
             <option>IBI Website</option>
+            <option>MyStore.in</option>
+            <option>IndiaMart</option>
             <option>Offline</option>
           </select>
         </div>
@@ -954,7 +956,7 @@ button,.btn,select,input,[role="button"]{overflow-wrap:normal}
 // Scheme:
 //   • Small patch  (bug fix / UI tweak): bump the part after the dot →  v10.9 → v10.10 → v10.11 …
 //   • Big feature  (new module / major change): bump the whole number, drop the dot →  v10.x → v11 → v12 …
-var APP_VERSION = "v15.17"; // ← change here on every release
+var APP_VERSION = "v15.18"; // ← change here on every release
 // ─────────────────────────────────────────────
 (function(){
     var chip = document.getElementById('verChip');
@@ -2481,12 +2483,15 @@ var COURIER_RULES = {
     // v15.11: JioMart (vendor UEO898, account awaiting approval 19 Oct 2026) — same pattern.
     'JioMart':      { allow:null, pick:'Delhivery', hint:'JioMart → Delhivery (change it if the label names another courier)' },
     'IBI Website':  { allow:null, pick:'ST Courier', hint:'IBI Website → ST Courier (change it if the label names another courier)' },
+    // v15.18: couriers not known yet, staff choose what the label names.
+    'MyStore.in':   { allow:null, hint:'MyStore.in → choose the courier named on the label' },
+    'IndiaMart':    { allow:null, hint:'IndiaMart → choose the courier named on the invoice or slip' },
     'Offline':      { allow:'Delhivery',  hint:'Locked: Offline → Delhivery only' }
 };
 /* v15.10: platforms whose orders are NOT in the Package Tracker yet (no label reader),
    so staff enter them by hand — the Order ID is then the only link to the ERP and to
    the duplicate guard, so it becomes required. Same box, relabelled: one input per fact. */
-var OP_MANUAL_ID_PLATFORMS = { 'Bazaar.in': 'Bazaar.in Order ID', 'JioMart': 'JioMart Order ID', 'IBI Website': 'IBI Website Order ID' };
+var OP_MANUAL_ID_PLATFORMS = { 'Bazaar.in': 'Bazaar.in Order ID', 'JioMart': 'JioMart Order ID', 'IBI Website': 'IBI Website Order ID', 'MyStore.in': 'MyStore.in Order ID', 'IndiaMart': 'IndiaMart Order or Invoice No.' };
 var OP_OID_LABEL_HTML = null, OP_OID_PH = null;
 function _opOrderIdForPlatform(platform){
     var lbl = document.getElementById('orderIdLabel'), inp = document.getElementById('orderIdInput');
