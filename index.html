@@ -742,6 +742,17 @@ button,.btn,select,input,[role="button"]{overflow-wrap:normal}
             <option value="Delhivery"  id="opt-delhivery">Delhivery</option>
             <option value="Bazaar.in Shipping" id="opt-bazaarin">Bazaar.in Shipping</option>
             <option value="ST Courier" id="opt-stcourier">ST Courier</option>
+            <!-- v15.19 (Founder, 22 Nov 2026): Shiprocket couriers for IBI Website and other own-shipping orders.
+                 Values are the same names the IBI Package Tracker saves. -->
+            <option value="Amazon Shipping">Amazon Shipping (Shiprocket)</option>
+            <option value="Xpressbees">Xpressbees</option>
+            <option value="Ekart">Ekart (Shiprocket)</option>
+            <option value="DTDC">DTDC</option>
+            <option value="Blue Dart">Blue Dart</option>
+            <option value="Shadowfax">Shadowfax</option>
+            <option value="Ecom Express">Ecom Express</option>
+            <option value="India Post">India Post</option>
+            <option value="Other">Other courier</option>
           </select>
         </div>
         <div class="courier-hint" id="courierHint"></div>
@@ -956,7 +967,7 @@ button,.btn,select,input,[role="button"]{overflow-wrap:normal}
 // Scheme:
 //   • Small patch  (bug fix / UI tweak): bump the part after the dot →  v10.9 → v10.10 → v10.11 …
 //   • Big feature  (new module / major change): bump the whole number, drop the dot →  v10.x → v11 → v12 …
-var APP_VERSION = "v15.18"; // ← change here on every release
+var APP_VERSION = "v15.19"; // ← change here on every release
 // ─────────────────────────────────────────────
 (function(){
     var chip = document.getElementById('verChip');
@@ -2482,7 +2493,9 @@ var COURIER_RULES = {
     'Bazaar.in':    { allow:null, pick:'Bazaar.in Shipping', hint:'Bazaar.in → Bazaar.in Shipping (change it if the label names another courier)' },
     // v15.11: JioMart (vendor UEO898, account awaiting approval 19 Oct 2026) — same pattern.
     'JioMart':      { allow:null, pick:'Delhivery', hint:'JioMart → Delhivery (change it if the label names another courier)' },
-    'IBI Website':  { allow:null, pick:'ST Courier', hint:'IBI Website → ST Courier (change it if the label names another courier)' },
+    // v15.19: IBI Website ships by ST Courier or by any Shiprocket courier (Amazon Shipping, Delhivery, Xpressbees…).
+    // A row pulled from the Package Tracker brings the courier its label names (prefillFromTracker).
+    'IBI Website':  { allow:null, pick:'ST Courier', hint:'IBI Website → ST Courier, or the Shiprocket courier on the label (Amazon Shipping, Delhivery, Xpressbees…). Change it if the label names another courier.' },
     // v15.18: couriers not known yet, staff choose what the label names.
     'MyStore.in':   { allow:null, hint:'MyStore.in → choose the courier named on the label' },
     'IndiaMart':    { allow:null, hint:'IndiaMart → choose the courier named on the invoice or slip' },
@@ -2896,11 +2909,31 @@ function startManualEntry(){
   _trkSetStatus('\u270D\uFE0F Manual entry mode — fill every field in the form below and Save. Use this whenever the Tracker list is empty or an API is down.','info');
   var el=document.getElementById('orderIdInput'); if(el){ try{ el.scrollIntoView({behavior:'smooth',block:'center'}); el.focus(); }catch(e){} }
 }
+/* v15.19: the Package Tracker's courier names → this form's courier values. */
+var OP_TRACKER_COURIER = { 'Amazon Transportation Services':'Amazon ATS', 'eKart Logistics':'eKart' };
+function _opApplyTrackerCourier(platform, trackerCourier){
+  var c = String(trackerCourier||'').trim(); if(!c || c === 'Unknown') return false;
+  var rule = COURIER_RULES[platform];
+  if(rule && rule.allow) return false;                 // locked platforms keep their courier
+  var want = OP_TRACKER_COURIER[c] || c;
+  var cs = document.getElementById('courierSelect');
+  for(var i=1;i<cs.options.length;i++){
+    if(cs.options[i].value === want){
+      cs.selectedIndex = i;
+      var hint = document.getElementById('courierHint');
+      hint.textContent = 'Courier from the Package Tracker (read from the label): ' + cs.options[i].text + '. Change it if the label names another courier.';
+      hint.style.display = 'block';
+      return true;
+    }
+  }
+  return false;
+}
 function prefillFromTracker(o){
   if(!o) return; var n=0;
   if(_setVal('#orderIdInput', o.orderId)) n++;
   if(_setVal('#invoiceInput', o.invoiceNo)) n++;
   if(_selectByText(document.getElementById('platformSelect'), o.platform)) n++;
+  if(_opApplyTrackerCourier(o.platform, o.courier)) n++;   // v15.19: after the platform's default
   var iso=_trkParseDate(o.shipDate); if(iso && _setVal('#pickupDate', iso, true)) n++;
   if(_setVal('#productInput', o.products)) n++;
   // Qty comes straight off the marketplace record, so a 2-piece order is packed
